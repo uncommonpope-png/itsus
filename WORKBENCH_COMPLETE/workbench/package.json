@@ -30,7 +30,13 @@
       "electron-main.cjs",
       "preload.cjs",
       "server.ts",
+      "hands.ts",
       "profit-brain/**/*",
+      {
+        "from": "cpl-pkg",
+        "to": "cpl",
+        "filter": ["**/*"]
+      },
       {
         "from": "gsk-pkg",
         "to": "gsk",
@@ -54,6 +60,11 @@
       {
         "from": "profit-brain",
         "to": "profit-brain",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "scribe-pkg",
+        "to": "app/scribe",
         "filter": ["**/*"]
       }
     ],

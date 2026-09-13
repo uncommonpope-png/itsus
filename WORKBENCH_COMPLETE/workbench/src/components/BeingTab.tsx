@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import html2canvas from "html2canvas";
+import { HandsPanel } from "./HandsPanel";
 import {
   Brain,
   Eye,
@@ -882,6 +883,9 @@ export function BeingTab({ accentColor }: { accentColor: string }) {
             <span className="text-[10px] text-slate-500">GSK can inspect the last capture via the capture_screen / inspect_ui tools</span>
           </div>
         </div>
+
+        {/* Hands — governed execution channel */}
+        <HandsPanel />
 
       </div>
     </div>

@@ -7,6 +7,7 @@ import { createServer as createViteServer } from "vite";
 import { fileURLToPath } from "url";
 import { spawn, spawnSync, execSync, ChildProcess } from "child_process";
 import { WebSocketServer, WebSocket } from "ws";
+import { createHands } from "./hands";
 
 // Synthesizer additions
 import { attachProvenance } from "./src/lib/provenance";
@@ -27,10 +28,37 @@ const __dirname = path.dirname(__filename);
 // redirected every REPO_ROOT/gsk path into an empty local shadow.
 const REPO_ROOT = fs.existsSync(path.join(__dirname, "gsk", "gsk_daemon.js")) ? __dirname : path.resolve(__dirname, "..");
 
+// AUTONOMY — single executor owner. The in-process being (gsk-module.js ->
+// GSKFusion) carries the full governed executor stack; the :3001 daemon is
+// the reasoning server and is spawned with GSK_AUTONOMY_ENABLED=false below.
+// Pointing the being's sovereign loop at the real repo (plus gsk) makes the
+// family able to work the repo — no twin loops, blood flow untouched.
+process.env.GSK_PROJECT_ROOTS = `${REPO_ROOT};${path.join(REPO_ROOT, "gsk")}`;
+if (!process.env.GSK_AUTONOMY_INTERVAL_MS) process.env.GSK_AUTONOMY_INTERVAL_MS = "1800000";
+if (!process.env.GSK_AUTONOMY_FIRST_DELAY_MS) process.env.GSK_AUTONOMY_FIRST_DELAY_MS = "120000";
+
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
+
+// ── HANDS: single governed execution channel ──
+// One place where intent becomes repo mutation. The being's executor stack
+// (council, HITL, budgets, PLT) runs inside gskMod; this module owns the
+// blood-flow guard, task intake, and the approval surface.
+const sseClients = new Set<http.ServerResponse>();
+function broadcastSse(type: string, payload: any) {
+  const data = `data: ${JSON.stringify({ type, ...payload })}\n\n`;
+  for (const client of sseClients) {
+    try { client.write(data); } catch { sseClients.delete(client); }
+  }
+}
+const hands = createHands({
+  getBeing: getTheBeing,
+  sanctionedRoots: [REPO_ROOT, path.join(REPO_ROOT, "gsk")],
+  logDir: path.join(REPO_ROOT, "data", "hands"),
+  emit: (type: string, payload: any) => broadcastSse(type, payload),
+});
 
 const GSK_MCP_URL = process.env.GSK_MCP_URL || "http://127.0.0.1:3001";
 const GSK_MCP_KEY = process.env.MCP_API_KEY || "92140facf0a3b8484f85b9d343687a95703e91b4724928e2ec78b8fd9d4aefc6";
@@ -490,6 +518,8 @@ app.get("/api/gsk/events", async (req, res) => {
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
   res.write(`data: ${JSON.stringify({ type: "connected", message: "SSE connected" })}\n\n`);
+  sseClients.add(res);
+  req.on("close", () => sseClients.delete(res));
 
   let lastSeen = Date.now();
   const sentHashes = new Set<string>();
@@ -2838,6 +2868,7 @@ async function startGSK(): Promise<void> {
     ...process.env,
     GSK_ROOT: gskPath,
     GSK_PROJECT_ROOTS: `${REPO_ROOT};${gskPath}`,
+    GSK_AUTONOMY_ENABLED: "false", // daemon = brain server; in-process being owns the autonomous loop (single executor owner)
     NINE_ROUTER_URL: OMNIROUTE_URL,
     NINE_ROUTER_API_KEY: process.env.NINE_ROUTER_API_KEY || "",
       MCP_API_KEY: GSK_MCP_KEY,
@@ -3998,8 +4029,59 @@ app.post("/api/being/gsk/tool", async (req, res) => {
     const being = await getTheBeing();
     const { name, args, actor } = req.body || {};
     if (!name) return res.json({ success: false, error: "name required" });
+    // THE HANDS: every ad-hoc tool call passes the blood-flow guard first.
+    const g = hands.guardTool(String(name), args || {});
+    if (!g.allowed) {
+      return res.json({ success: false, error: `blocked by blood-flow law: ${g.reason}`, blocked: true, reason: g.reason });
+    }
     const result = await being.gsk.executeTool?.(String(name), args || {});
+    hands.logAdHoc(String(name), args || {}, actor || "craig", result);
     res.json({ success: true, result });
+  } catch (err: any) { res.json({ success: false, error: err?.message }); }
+});
+
+// ── HANDS ROUTES — task intake, approvals, status, history ──
+app.post("/api/hands/task", async (req, res) => {
+  try {
+    const { task, projectRoot, mode, actor } = req.body || {};
+    const r = await hands.submitTask({ task, projectRoot, mode }, actor || "craig");
+    res.json(r.ok ? { success: true, taskId: r.taskId } : { success: false, error: r.error });
+  } catch (err: any) { res.json({ success: false, error: err?.message }); }
+});
+
+app.get("/api/hands/status", async (_req, res) => {
+  try {
+    res.json({ success: true, ...hands.status(), approvals: await hands.approvals() });
+  } catch (err: any) { res.json({ success: false, error: err?.message }); }
+});
+
+app.get("/api/hands/approvals", async (_req, res) => {
+  try {
+    res.json({ success: true, approvals: await hands.approvals() });
+  } catch (err: any) { res.json({ success: false, error: err?.message }); }
+});
+
+app.post("/api/hands/approve", async (req, res) => {
+  try {
+    const { id, actor } = req.body || {};
+    if (!id) return res.json({ success: false, error: "approval id required" });
+    const r = await hands.approve(String(id), actor || "architect");
+    res.json(r.ok ? { success: true, result: r.result } : { success: false, error: r.error });
+  } catch (err: any) { res.json({ success: false, error: err?.message }); }
+});
+
+app.post("/api/hands/deny", async (req, res) => {
+  try {
+    const { id, reason, actor } = req.body || {};
+    if (!id) return res.json({ success: false, error: "approval id required" });
+    const r = await hands.deny(String(id), reason || "Denied by architect", actor || "architect");
+    res.json(r.ok ? { success: true } : { success: false, error: r.error });
+  } catch (err: any) { res.json({ success: false, error: err?.message }); }
+});
+
+app.get("/api/hands/history", async (_req, res) => {
+  try {
+    res.json({ success: true, history: hands.historyItems(40) });
   } catch (err: any) { res.json({ success: false, error: err?.message }); }
 });
 
