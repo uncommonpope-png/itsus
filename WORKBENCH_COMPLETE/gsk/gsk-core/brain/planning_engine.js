@@ -616,6 +616,26 @@ Use only available tools. Never invent a tool. Prefer read/search/diagnose befor
             };
         };
 
+        // Dialect 1b: single bare JSON object — the model sometimes wraps ONE
+        // action instead of an array, or returns {steps:[...]}/{actions:[...]}.
+        if (actions.length === 0) {
+            try {
+                const parsed = JSON.parse(cleaned);
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                    const list = parsed.steps || parsed.actions || null;
+                    if (Array.isArray(list)) {
+                        for (const a of list) {
+                            const n = normalize(a);
+                            if (n) actions.push(n);
+                        }
+                    } else {
+                        const n = normalize(parsed);
+                        if (n) actions.push(n);
+                    }
+                }
+            } catch (e) { /* not this dialect — continue */ }
+        }
+
         // Dialect 2: <tool_call>{ json }</tool_call>  (OmniRoute-fed models)
         const tc = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g;
         let m;
@@ -637,15 +657,31 @@ Use only available tools. Never invent a tool. Prefer read/search/diagnose befor
             actions.push({ description: `Execute ${f[1].trim()}`, tool: f[1].trim(), args });
         }
 
-        // Dialect 4 fallback: naked {"tool": "..."} objects with no tags/array
+        // Dialect 4 fallback: naked objects with no tags/array. Uses a
+        // brace-balanced scan so nested "args"/"parameters" objects don't
+        // break extraction (a lazy \} regex closed on the first inner brace
+        // and the chunk failed JSON.parse — a recurring parsed=0 failure).
         if (actions.length === 0) {
-            const bare = /\{[\s\S]*?"tool"\s*:\s*"[^"]+"[\s\S]*?\}/g;
-            let b;
-            while ((b = bare.exec(cleaned)) !== null) {
+            const scanBalanced = (text, start) => {
+                let depth = 0;
+                for (let i = start; i < text.length; i++) {
+                    const ch = text[i];
+                    if (ch === '{') depth++;
+                    else if (ch === '}') { depth--; if (depth === 0) return i; }
+                }
+                return -1;
+            };
+            let idx = 0;
+            while (idx < cleaned.length) {
+                const open = cleaned.indexOf('{', idx);
+                if (open === -1) break;
+                const close = scanBalanced(cleaned, open);
+                if (close === -1) break;
                 try {
-                    const n = normalize(JSON.parse(b[0]));
+                    const n = normalize(JSON.parse(cleaned.slice(open, close + 1)));
                     if (n) actions.push(n);
                 } catch (e) { /* not parseable — skip */ }
+                idx = close + 1;
             }
         }
 
