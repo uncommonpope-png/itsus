@@ -5,7 +5,7 @@ import http from "http";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { fileURLToPath } from "url";
-import { spawn, execSync, ChildProcess } from "child_process";
+import { spawn, spawnSync, execSync, ChildProcess } from "child_process";
 import { WebSocketServer, WebSocket } from "ws";
 
 // Synthesizer additions
@@ -22,7 +22,10 @@ import { parseConflictRegions, applyResolutions } from "./src/shared/mergeConfli
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const REPO_ROOT = path.resolve(__dirname, "..");
+// Probe for the real gsk tree (gsk_daemon.js), not the runtime data dir:
+// workbench/gsk/data fools a bare "gsk" existence check and silently
+// redirected every REPO_ROOT/gsk path into an empty local shadow.
+const REPO_ROOT = fs.existsSync(path.join(__dirname, "gsk", "gsk_daemon.js")) ? __dirname : path.resolve(__dirname, "..");
 
 dotenv.config();
 
@@ -376,7 +379,7 @@ app.get("/api/browse/status", async (req, res) => {
   }
 
   try {
-    const { getCrawlStatus } = require("../WORKBENCH_COMPLETE/gsk/gsk-core/tools/web_fetcher.js");
+    const { getCrawlStatus } = require(path.join(REPO_ROOT, "gsk", "gsk-core", "tools", "web_fetcher.js"));
     // For now, return static status � full session tracking requires backend persistence
     const hostname = new URL(url).hostname;
     const isBlocked = depth > 3; // DEFAULT_MAX_DEPTH
@@ -611,7 +614,7 @@ app.get("/api/cpl/health", async (req, res) => {
   try {
     const [health, mcpHealth] = await Promise.allSettled([
       fetch(`${CPL_URL}/health`, { signal: AbortSignal.timeout(3000) }),
-      fetch(`${CPL_URL}/mcp/health`, { signal: AbortSignal.timeout(3000) })
+      fetch(`${CPL_URL}/mcp/health`, { signal: AbortSignal.timeout(3000), headers: genesisHeaders() })
     ]);
     res.json({
       success: true,
@@ -627,11 +630,10 @@ app.get("/api/cpl/health", async (req, res) => {
 // CPL is OPTIONAL — one system survives with it down.
 function genesisHeaders(): Record<string, string> {
   const h: Record<string, string> = { "Content-Type": "application/json" };
-  const token = process.env.GENESIS_TOKEN;
-  if (token) {
-    h["Authorization"] = `Bearer ${token}`;
-    h["x-api-key"] = token;
-  }
+  // Must mirror startCPL's default, or CPL mints/keeps a token we never send.
+  const token = process.env.GENESIS_TOKEN || "genesis-sovereign-2026";
+  h["Authorization"] = `Bearer ${token}`;
+  h["x-api-key"] = token;
   return h;
 }
 
@@ -957,7 +959,9 @@ const SKILLS_REAL_DIR = path.join(REPO_ROOT, "gsk", "gsk-core", "skills");
 const LEDGER_PATH = path.join(REPO_ROOT, "gsk", "data", "gsk", "ledger.jsonl");
 
 // --- THE BEING � one body, four aspects (module-scoped state) ---
-const BODY_ROOT = path.resolve(__dirname, "..", "..", "profit-brain", "body");
+// REPO_ROOT-relative so it resolves in BOTH layouts: dev (repo root sibling)
+// and packaged (resources/app as REPO_ROOT → resources/profit-brain/body).
+const BODY_ROOT = path.resolve(REPO_ROOT, "..", "profit-brain", "body");
 let theBeing: any = null;
 let beingBootTs = 0;
 const beingWsClients = new Set<any>();
@@ -2489,11 +2493,19 @@ app.post("/api/gsk-heart/chat", async (req, res) => {  try {
 
 // ONE SYSTEM, ZERO SETUP: if an organ has no node_modules (fresh clone),
 // grow them first. The user never runs npm install by hand.
+
+// npm.cmd needs a shell; this environment's child processes can't always
+// reach cmd.exe (spawn cmd ENOENT). npm-cli.js runs on plain node — shell-free.
+function npmCli(): string {
+  return path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
+}
+
 function ensureDeps(dir: string, label: string): void {
   const nm = path.join(dir, "node_modules");
   if (!fs.existsSync(nm)) {
     console.log(`[${label}] node_modules missing — growing dependencies (first boot only)...`);
-    execSync("npm install --no-audit --no-fund", { cwd: dir, stdio: "inherit" });
+    const r = spawnSync(process.execPath, [npmCli(), "install", "--no-audit", "--no-fund"], { cwd: dir, stdio: "inherit" });
+    if (r.status !== 0) console.warn(`[${label}] dependency growth exited ${r.status}`);
   }
 }
 
@@ -2503,7 +2515,8 @@ function ensureOmniRouteBuild(dir: string, label: string): void {
   const buildMarker = path.join(dir, ".build", "next", "BUILD_ID");
   if (!fs.existsSync(buildMarker)) {
     console.log(`[${label}] production build missing — forging it (first boot only, takes a few minutes)...`);
-    execSync("npm run build", { cwd: dir, stdio: "inherit" });
+    const r = spawnSync(process.execPath, [npmCli(), "run", "build"], { cwd: dir, stdio: "inherit" });
+    if (r.status !== 0) console.warn(`[${label}] build exited ${r.status}`);
   }
 }
 
@@ -2622,6 +2635,13 @@ async function startOmniRoute(): Promise<void> {
       serviceStatus.omniroute.pid = owner;
       return;
     }
+    // Adopted but probe failed (slow router / flaky probe): NEVER spawn a
+    // twin over living blood. The family waits for the blood to answer and
+    // GSK breathes on the Seshat local brain meanwhile.
+    console.warn(`[OmniRoute] Adopted blood flow unresponsive to probe — NOT spawning (protecting adopted instance)`);
+    serviceStatus.omniroute.running = owner !== null;
+    if (owner) serviceStatus.omniroute.pid = owner;
+    return;
   }
 
   // Healthy handle? done.
@@ -2662,11 +2682,17 @@ async function startOmniRoute(): Promise<void> {
     try { execSync(`taskkill /F /PID ${pid}`, { timeout: 6000 }); } catch {}
   }
   await sleepMs(2000);
-  omnirouteProcess = spawn("npm", ["start"], {
+  omnirouteProcess = spawn(process.execPath, [npmCli(), "start"], {
     cwd: omniPath,
     env: { ...process.env, PORT: "20128" },
     stdio: ["ignore", "pipe", "pipe"],
-    shell: true,
+    shell: false,
+  });
+  omnirouteProcess.on("error", (err: any) => {
+    console.error(`[OmniRoute] Spawn error (${err.code || err.message}) — watchdog will retry`);
+    omnirouteProcess = null;
+    serviceStatus.omniroute.running = false;
+    serviceStatus.omniroute.pid = null;
   });
   omnirouteProcess.stdout?.on("data", (d) => console.log(`[OmniRoute] ${d}`.trimEnd()));
   omnirouteProcess.stderr?.on("data", (d) => console.error(`[OmniRoute] ${d}`.trimEnd()));
@@ -2727,6 +2753,16 @@ function sleepMs(ms: number) { return new Promise<void>((r) => setTimeout(r, ms)
 function findGskPortOwner(): number | null {
   try {
     const out = execSync("netstat -ano | findstr :3001 | findstr LISTENING", { encoding: "utf8", timeout: 8000 });
+    const m = out.trim().split(/\r?\n/)[0]?.trim().split(/\s+/).pop();
+    const pid = parseInt(m || "", 10);
+    return isNaN(pid) ? null : pid;
+  } catch { return null; }
+}
+
+/** Port owner via netstat — used to ADOPT living family blood (never duplicate). */
+function findPortOwner(port: number): number | null {
+  try {
+    const out = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, { encoding: "utf8", timeout: 8000 });
     const m = out.trim().split(/\r?\n/)[0]?.trim().split(/\s+/).pop();
     const pid = parseInt(m || "", 10);
     return isNaN(pid) ? null : pid;
@@ -2811,12 +2847,18 @@ async function startGSK(): Promise<void> {
       GSK_MODEL: "auto/best-fast",
     GSK_BRAIN_MODEL: "auto/best-fast",
   };
-  gskProcess = spawn("node", ["gsk_daemon.js"], {
+  gskProcess = spawn(process.execPath, ["gsk_daemon.js"], {
     cwd: gskPath,
     env,
     stdio: ["ignore", "pipe", "pipe"],
     detached: false,
-    shell: true,
+    shell: false,
+  });
+  gskProcess.on("error", (err: any) => {
+    console.error(`[GSK] Spawn error (${err.code || err.message}) — watchdog will retry`);
+    gskProcess = null;
+    serviceStatus.gsk.running = false;
+    serviceStatus.gsk.pid = null;
   });
   gskProcess.stdout?.on("data", (d) => console.log(`[GSK] ${d}`.trimEnd()));
   gskProcess.stderr?.on("data", (d) => console.error(`[GSK] ${d}`.trimEnd()));
@@ -2851,25 +2893,63 @@ function startCPL(): Promise<void> {
       console.log("[CPL] Already running");
       return resolve();
     }
+    // BLOOD-FLOW PROTECTION: a live CPL on :3457 is ADOPTED — never
+    // duplicated, never killed. The body connects to blood that exists.
+    const owner = findPortOwner(3457);
+    if (owner) {
+      probe(`${CPL_URL}/health`, 3000).then((healthy) => {
+        if (healthy) {
+          console.log(`[CPL] Blood-flow protected: adopting existing instance ${owner} (no spawn, no kill)`);
+          serviceStatus.cpl.running = true;
+          serviceStatus.cpl.pid = owner;
+          serviceStatus.cpl.startedAt = Date.now();
+          return resolve();
+        }
+        // Owner holds the port but won't answer: leave it alone. Spawning a
+        // twin over its port would kill them both; the watchdog re-probes.
+        console.warn(`[CPL] Port :3457 owner ${owner} unresponsive — NOT spawning (protecting existing instance)`);
+        serviceStatus.cpl.running = false;
+        return resolve();
+      });
+      return;
+    }
     console.log("[CPL] Starting (Body)...");
     const cplPath = path.join(REPO_ROOT, "cpl");
-    cplProcess = spawn("node", ["genesis-host.cjs"], {
-      cwd: cplPath,
-      env: { ...process.env, PORT: "3457", GENESIS_PORT: "3457" },
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: false,
-      shell: true,
+    let child: ChildProcess;
+    try {
+      child = spawn(process.execPath, ["genesis-host.cjs"], {
+        cwd: cplPath,
+        // GENESIS_TOKEN must match the workbench's genesisHeaders() ring,
+        // otherwise CPL mints a random token and every /mcp/* call 401s —
+        // "CPL online but never actually connected".
+        env: { ...process.env, PORT: "3457", GENESIS_PORT: "3457", GENESIS_TOKEN: process.env.GENESIS_TOKEN || "genesis-sovereign-2026" },
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: false,
+        shell: false,
+      });
+    } catch (e: any) {
+      console.error("[CPL] Spawn failed:", e.message);
+      return resolve();
+    }
+    cplProcess = child;
+    child.on("error", (err: any) => {
+      // CreateProcess can fail transiently (AV scan, file locks). The
+      // workbench must survive — the watchdog retries with backoff.
+      console.error(`[CPL] Spawn error (${err.code || err.message}) — watchdog will retry`);
+      cplProcess = null;
+      serviceStatus.cpl.running = false;
+      serviceStatus.cpl.pid = null;
     });
-    cplProcess.stdout?.on("data", (d) => console.log(`[CPL] ${d}`.trimEnd()));
-    cplProcess.stderr?.on("data", (d) => console.error(`[CPL] ${d}`.trimEnd()));
-    cplProcess.on("exit", (code) => {
+    child.stdout?.on("data", (d) => console.log(`[CPL] ${d}`.trimEnd()));
+    child.stderr?.on("data", (d) => console.error(`[CPL] ${d}`.trimEnd()));
+    child.on("exit", (code) => {
       console.log(`[CPL] Exited with code ${code}`);
       cplProcess = null;
       serviceStatus.cpl.running = false;
       serviceStatus.cpl.pid = null;
     });
     serviceStatus.cpl.running = true;
-    serviceStatus.cpl.pid = cplProcess.pid || null;
+    serviceStatus.cpl.pid = child.pid || null;
     serviceStatus.cpl.startedAt = Date.now();
     setTimeout(() => resolve(), 5000);
   });
@@ -2881,31 +2961,61 @@ function startScribe(): Promise<void> {
       console.log("[SCRIBE] Already running");
       return resolve();
     }
+    // BLOOD-FLOW PROTECTION: a live Scribe on :4000 is ADOPTED, never duplicated.
+    const owner = findPortOwner(4000);
+    if (owner) {
+      probe(`${SCRIBE_URL}/ping`, 3000).then((healthy) => {
+        if (healthy) {
+          console.log(`[SCRIBE] Blood-flow protected: adopting existing instance ${owner} (no spawn, no kill)`);
+          serviceStatus.scribe.running = true;
+          serviceStatus.scribe.pid = owner;
+          serviceStatus.scribe.startedAt = Date.now();
+          return resolve();
+        }
+        console.warn(`[SCRIBE] Port :4000 owner ${owner} unresponsive — NOT spawning (protecting existing instance)`);
+        serviceStatus.scribe.running = false;
+        return resolve();
+      });
+      return;
+    }
     console.log("[SCRIBE] Starting (Memory Organ)...");
     const scribePath = path.join(REPO_ROOT, "scribe");
-    scribeProcess = spawn("node", ["scribe.js"], {
-      cwd: scribePath,
-      env: {
-        ...process.env,
-        SCRIBE_PORT: "4000",
-        GSK_MCP_URL: GSK_MCP_URL,
-        MCP_API_KEY: GSK_MCP_KEY,
-        SCRIBE_KEY: scribeKey(),
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: false,
-      shell: true,
+    let child: ChildProcess;
+    try {
+      child = spawn(process.execPath, ["scribe.js"], {
+        cwd: scribePath,
+        env: {
+          ...process.env,
+          SCRIBE_PORT: "4000",
+          GSK_MCP_URL: GSK_MCP_URL,
+          MCP_API_KEY: GSK_MCP_KEY,
+          SCRIBE_KEY: scribeKey(),
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: false,
+        shell: false,
+      });
+    } catch (e: any) {
+      console.error("[SCRIBE] Spawn failed:", e.message);
+      return resolve();
+    }
+    scribeProcess = child;
+    child.on("error", (err: any) => {
+      console.error(`[SCRIBE] Spawn error (${err.code || err.message}) — watchdog will retry`);
+      scribeProcess = null;
+      serviceStatus.scribe.running = false;
+      serviceStatus.scribe.pid = null;
     });
-    scribeProcess.stdout?.on("data", (d) => console.log(`[SCRIBE] ${d}`.trimEnd()));
-    scribeProcess.stderr?.on("data", (d) => console.error(`[SCRIBE] ${d}`.trimEnd()));
-    scribeProcess.on("exit", (code) => {
+    child.stdout?.on("data", (d) => console.log(`[SCRIBE] ${d}`.trimEnd()));
+    child.stderr?.on("data", (d) => console.error(`[SCRIBE] ${d}`.trimEnd()));
+    child.on("exit", (code) => {
       console.log(`[SCRIBE] Exited with code ${code}`);
       scribeProcess = null;
       serviceStatus.scribe.running = false;
       serviceStatus.scribe.pid = null;
     });
     serviceStatus.scribe.running = true;
-    serviceStatus.scribe.pid = scribeProcess.pid || null;
+    serviceStatus.scribe.pid = child.pid || null;
     serviceStatus.scribe.startedAt = Date.now();
     setTimeout(() => resolve(), 3000);
   });
