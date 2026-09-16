@@ -166,7 +166,11 @@ class PerpetualConsciousness {
             ? brain.thinkForBackground.bind(brain)
             : (p, c) => brain.think(p, c, false);
         const response = await thinkFn(prompt, context);
-        if (!response || brain._lastThinkUsedFallback) throw new Error('No live model answered');
+        // POPE FIX 2026-09-16: a local answer is an answer. The old code
+        // threw on ANY fallback-sourced reply, forcing OmniRoute retries for
+        // observe/health prompts Qwen already answered. Only nothing is failure.
+        if (!response) throw new Error('No live model answered');
+        this._lastWasLocal = !!brain._lastThinkUsedFallback;
         return response;
     }
 

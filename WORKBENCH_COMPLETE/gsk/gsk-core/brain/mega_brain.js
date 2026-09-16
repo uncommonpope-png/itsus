@@ -14,6 +14,7 @@
 const http = require('http');
 const https = require('https');
 const path = require('path');
+const fs = require('fs');
 
 let BibleLoader;
 try {
@@ -188,11 +189,22 @@ class Brain {
     
     
     // =========================================================================
-    // THINK — Main generation method (OmniRoute only)
+    // THINK — Main generation method (OmniRoute + Local SESHAT)
     // =========================================================================
-    
+
     async think(prompt, soul_context = '', priority = false) {
         this._lastThinkUsedFallback = false;
+
+        // ─────────────────────────────────────────────────────────────────
+        // LOCAL-FIRST GATE: classify before any routing
+        // Priority (user chat) ALWAYS goes to OmniRoute.
+        // Autonomous/background calls check if they can run locally.
+        // ─────────────────────────────────────────────────────────────────
+        if (!priority && this._isLocalOperation(prompt)) {
+            console.log('[Brain] Local operation detected — routing to SESHAT');
+            return this._localThink(prompt, soul_context);
+        }
+
         if (Date.now() < this._brainCooldownUntil && !priority) {
             console.error('[Brain] think() returning null due to CooldownUntil > Date.now()');
             this._lastThinkUsedFallback = true;
@@ -295,6 +307,24 @@ class Brain {
             this._thinkInProgress = false;
         }
 
+        // ── SESHAT LOCAL BASELINE (zero-token) ─────────────────────────
+        // Router chain is dead (OmniRoute down / every model exhausted).
+        // Breathe on the local llama.cpp brain instead of going mute — the
+        // starve-fix. Chat reaches this only after the router truly failed.
+        try {
+            const local = await this._seshatLocal(prompt, soul_context);
+            if (local) {
+                console.log('[Brain] Seshat local brain answered (zero-token baseline)');
+                this._brainFailures = 0;
+                this._brainCooldownUntil = 0;
+                this._available = true;
+                this._lastThinkUsedFallback = true;
+                return local;
+            }
+        } catch (e) {
+            console.log('[Brain] Seshat local fallback threw:', e.message);
+        }
+
         this._brainFailures++;
         const failThreshold = Math.min(3, this._maxModelAttempts);
         if (this._brainFailures >= failThreshold) {
@@ -307,6 +337,193 @@ class Brain {
         this._available = false;
         this._lastThinkUsedFallback = true;
         return null;
+    }
+
+    /**
+     * _seshatLocal — zero-token baseline brain (SESHA ALLM v2.0, llama.cpp).
+     * Dev layout: WORKBENCH_COMPLETE/workbench/profit-brain/... ; packaged:
+     * resources/app/profit-brain/... (same level as gsk/). RUNTIME_DIR comes
+     * from env (electron-main injects SESHA_RUNTIME_DIR=userData/runtime).
+     */
+    async _seshatLocal(prompt, soul_context = '') {
+        const candidates = [
+            path.resolve(__dirname, '..', '..', '..', 'workbench', 'profit-brain', 'body', 'seshat', 'core', 'llm.js'),
+            path.resolve(__dirname, '..', '..', '..', 'profit-brain', 'body', 'seshat', 'core', 'llm.js'),
+        ];
+        for (const file of candidates) {
+            try {
+                if (!fs.existsSync(file)) continue;
+                const llm = require(file);
+                if (typeof llm.initLLM === 'function') {
+                    const status = await llm.initLLM();
+                    if (!status || !status.available) {
+                        console.log('[Brain] Seshat local unavailable:', status && status.reason);
+                        continue;
+                    }
+                }
+                const res = await llm.think(prompt, soul_context || null);
+                const text = res && typeof res.response === 'string' ? res.response.trim() : '';
+                if (text) return text;
+            } catch (e) {
+                console.log('[Brain] Seshat local fallback failed:', e.message);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * _seshatLocal — zero-token baseline brain (SESHA ALLM v2.0, llama.cpp).
+     * Dev layout: WORKBENCH_COMPLETE/workbench/profit-brain/... ; packaged:
+     * resources/app/profit-brain/... (same level as gsk/). RUNTIME_DIR comes
+     * from env (electron-main injects SESHA_RUNTIME_DIR=userData/runtime).
+     * ALSO checks the REAL working binary in AppData runtime.
+     */
+    async _seshatLocal(prompt, soul_context = '') {
+        const candidates = [
+            // Packaged exe path
+            path.resolve(__dirname, '..', '..', '..', 'workbench', 'profit-brain', 'body', 'seshat', 'core', 'llm.js'),
+            // Dev path
+            path.resolve(__dirname, '..', '..', '..', 'profit-brain', 'body', 'seshat', 'core', 'llm.js'),
+            // REAL working runtime (user's actual llama.cpp binary + model)
+            path.join(process.env.APPDATA || '', 'buyasoul-workbench', 'runtime', 'llama', 'llama.exe'),
+        ];
+        for (const file of candidates) {
+            try {
+                if (!fs.existsSync(file)) continue;
+                // If it's the llama.exe binary, we need to call it differently
+                if (file.endsWith('llama.exe')) {
+                    return this._callLlamaCli(file, prompt, soul_context);
+                }
+                const llm = require(file);
+                if (typeof llm.initLLM === 'function') {
+                    const status = await llm.initLLM();
+                    if (!status || !status.available) {
+                        console.log('[Brain] Seshat local unavailable:', status && status.reason);
+                        continue;
+                    }
+                }
+                const res = await llm.think(prompt, soul_context || null);
+                const text = res && typeof res.response === 'string' ? res.response.trim() : '';
+                if (text) return this._cleanLocalText(text);
+            } catch (e) {
+                console.log('[Brain] Seshat local fallback failed:', e.message);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * POPE FIX 2026-09-16: Qwen is reflexes, notreasoning. Strip CLI banners
+     * and cap length so local answers can never leak scaffolding downstream.
+     */
+    _cleanLocalText(text) {
+        const LEAK = /loading model|available commands|\/exit or ctrl\+c|\/regen|\/clear|^\s*build\s*:|^\s*model\s*:|^\s*ftype\s*:|^\s*modalities\s*:|^>\s*cycle:|thinking process:|^\s*cycle:\s*\d+\s*\|/i;
+        const kept = String(text || '').split('\n').filter((ln) => {
+            const t = ln.trim();
+            if (!t) return false;
+            if (LEAK.test(ln)) return false;
+            if (/^[─│┌┐└┘╔╗╚╝═║ redrawn�?]{6,}$/.test(t)) return false;
+            return true;
+        });
+        return kept.join('\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, 1200);
+    }
+    async _callLlamaCli(llamaPath, prompt, soul_context) {
+        const { spawn } = require('child_process');
+        const modelPath = path.join(path.dirname(llamaPath), '..', 'qwen3.5-0.8b-q4_0.gguf');
+
+        const fullPrompt = (soul_context ? `${soul_context}\n\nQuestion: ${prompt}\n\nAnswer:` : prompt)
+            + '\n\nAnswer briefly in 3 short lines or less. No preamble, no banners, no system text.';
+
+
+        return new Promise((resolve, reject) => {
+            const proc = spawn(llamaPath, [
+                '-m', modelPath,
+                '-p', fullPrompt,
+                '-n', '512',
+                '--no-warmup'
+            ], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+
+            let output = '';
+            proc.stdout.on('data', (data) => { output += data.toString(); });
+            proc.on('close', (code) => {
+                if (code !== 0 && code !== 130) {
+                    return reject(new Error('llama-cli exited with code ' + code));
+                }
+                try { resolve(this._cleanLocalText(output)); }
+                catch { resolve(output.trim().slice(0, 1200)); }
+            });
+            proc.on('error', reject);
+            setTimeout(() => { proc.kill(); reject(new Error('Generation timeout')); }, 60000);
+        });
+    }
+
+    /**
+     * LOCAL-FIRST CLASSIFIER — Returns true if this prompt can run locally
+     * without calling OmniRoute. These are mundane autonomous operations.
+     */
+    _isLocalOperation(prompt) {
+        if (!prompt || typeof prompt !== 'string') return false;
+        const p = prompt.toLowerCase();
+
+        const localPatterns = [
+            /observe/i,
+            /health/i,
+            /gap/i,
+            /evolve.*goal/i,
+            /missing.*tool/i,
+            /fix.*failed/i,
+            /system.*audit/i,
+            /stale.*observation/i,
+            /telemetry.*filter/i,
+            /dashboard.*spam/i,
+            /local.*analysis/i,
+            /gap.*analysis/i,
+        ];
+        return localPatterns.some(pattern => pattern.test(p));
+    }
+
+    /**
+     * LOCAL THINK — Handles operations that don't need OmniRoute.
+     * Routes to SESHAT (llama.cpp) or direct subsystem calls.
+     */
+    async _localThink(prompt, soul_context = '') {
+        const p = prompt.toLowerCase();
+
+        // Gap analysis / goal evolution → GoalEngine
+        if (p.includes('gap') || p.includes('evolve.*goal') || p.includes('evolve goal')) {
+            const goalEngine = this._fusion?.goalEngine || this._kernel?.goalEngine;
+            if (goalEngine && typeof goalEngine.evolve === 'function') {
+                return goalEngine.evolve(prompt);
+            }
+        }
+
+        // Health checks
+        if (p.includes('health')) {
+            return this._kernel?.gskHealthy?.() ?? 'healthy';
+        }
+
+        // Missing tool detection
+        if (p.includes('missing.*tool')) {
+            const catalog = this._fusion?.toolCatalog || this._kernel?.toolCatalog;
+            if (catalog?.tools) {
+                const missing = catalog.tools.filter(t => !t.implemented);
+                return missing.length ? `Missing: ${missing.map(t => t.name).join(', ')}` : 'All tools implemented';
+            }
+        }
+
+        // Telemetry filtering
+        if (p.includes('telemetry') && (p.includes('filter') || p.includes('spam'))) {
+            return 'Filtered: dashboard telemetry visualizers are exhausted — workbench :3000 is the live dashboard';
+        }
+
+        // Stale observation evolution
+        if (p.includes('stale.*observation')) {
+            const evolver = this._fusion?.graphEvolver;
+            if (evolver) return evolver.evolveGoal(prompt, { source: 'stale_observation' });
+        }
+
+        // Fallback to SESHAT local LLM for anything else classified as local
+        return this._seshatLocal(prompt, soul_context);
     }
 
     /**
