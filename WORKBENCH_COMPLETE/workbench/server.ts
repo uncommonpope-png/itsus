@@ -675,8 +675,7 @@ app.post("/api/gsk/chat/stream", async (req, res) => {
   const safeWrite = (s: string) => { try { if (!res.writableEnded && !(res as any).destroyed) res.write(s); } catch {} };
   const safeEnd = () => { try { if (!res.writableEnded) res.end(); } catch {} };
   const send = (obj: any) => safeWrite(`data: ${JSON.stringify(obj)}\n\n`);
-  let clientGone = false;
-  try { req.on("close", () => { clientGone = true; }); } catch {}
+  const gone = () => { try { return !!(res as any).closed || (res as any).destroyed || res.writableEnded; } catch { return false; } };
   try {
     const { message, context } = req.body || {};
     if (!message) return res.status(400).json({ success: false, error: "message required" });
@@ -701,7 +700,7 @@ app.post("/api/gsk/chat/stream", async (req, res) => {
       const rp = await gskMCPRequest("/mcp/chat", { message, context: outboundContext }, 60000);
       responseText = loopCoerceReply((rp as any)?.result || rp);
     }
-    if (clientGone) { safeEnd(); return; }
+    if (gone()) { safeEnd(); return; }
     const blocks = [...responseText.matchAll(/<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/gi)];
     if (blocks.length === 0) {
       send({ type: "final", response: responseText });
@@ -724,7 +723,7 @@ app.post("/api/gsk/chat/stream", async (req, res) => {
       }
     };
     const results = await Promise.all(blocks.slice(0, 8).map(runOne));
-    if (clientGone) { safeEnd(); return; }
+    if (gone()) { safeEnd(); return; }
     const followup = `TOOL RESULTS:\n${results.join("\n\n---\n\n")}\n\nOriginal: ${message}\n\nFinal answer in prose. No more tool calls. Under 1500 chars.`;
     let finalText = "";
     if (gskChat) finalText = loopCoerceReply(await gskChat.chat(followup, { source: "workbench:stream-followup", context: `Original: ${message}` }));
@@ -1958,8 +1957,7 @@ app.post("/api/profit/task", async (req, res) => {
   const safeWrite = (s: string) => { try { if (!res.writableEnded && !(res as any).destroyed) res.write(s); } catch {} };
   const safeEnd = () => { try { if (!res.writableEnded) res.end(); } catch {} };
   const send = (obj: any) => safeWrite(`data: ${JSON.stringify(obj)}\n\n`);
-  let clientGone = false;
-  try { req.on("close", () => { clientGone = true; }); } catch {}
+  const gone = () => { try { return !!(res as any).closed || (res as any).destroyed || res.writableEnded; } catch { return false; } };
   try {
     // Reuse profit chat logic but signal as task
     const { message, sessionId, model } = req.body || {};
@@ -1972,7 +1970,7 @@ app.post("/api/profit/task", async (req, res) => {
     } catch {}
     send({ type: "thinking", content: `Prime task: ${String(message).slice(0, 120)}` });
     const gskRes = await gskMCPRequest("/mcp/chat", { message: `[TASK] ${message}`, context: `session:${sessionId||"new"} model:${model||"auto"}` }, 60000);
-    if (clientGone) { safeEnd(); return; }
+    if (gone()) { safeEnd(); return; }
     const reply = String((gskRes as any)?.result?.response || (gskRes as any)?.response || "(no reply)");
     send({ type: "result", content: reply.slice(0, 4000) });
     send({ type: "done", finalReply: reply });
