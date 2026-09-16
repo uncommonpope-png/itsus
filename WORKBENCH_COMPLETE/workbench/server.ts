@@ -143,11 +143,221 @@ app.post("/api/gsk/context", async (req, res) => {
 });
 
 // ─── API Routes ───
+// ─── TOOL LOOP SHARED HANDS (module scope so JSON + SSE routes share one truth) ───
+function loopAnchorRoot(p: string): string {
+  const s = String(p || "").replace(/\//g, "\\");
+  if (/^[A-Za-z]:\\/.test(s)) return s;
+  return path.join(REPO_ROOT, s.replace(/^\\+/, ""));
+}
+const LOOP_READ_ROOTS = () => [
+  REPO_ROOT,
+  path.join(REPO_ROOT, "gsk"),
+  path.join(REPO_ROOT, "sandbox"),
+  path.join(REPO_ROOT, "allie-better"),
+  "C:\\Users\\uncom\\Desktop\\allie",
+  "C:\\Users\\uncom\\Desktop\\seshat-second-brain",
+];
+const LOOP_WRITE_ROOTS = () => [
+  path.resolve(REPO_ROOT, "sandbox"),
+  path.resolve(REPO_ROOT, "allie-better"),
+];
+function loopIsAllowedReadPath(p: string): boolean {
+  try {
+    const abs = path.resolve(p);
+    if (/(^|[\\/])\.env$|\.pem$|id_rsa|HF_TOKEN|GENESIS_TOKEN|SCRIBE_KEY/i.test(abs)) return false;
+    return LOOP_READ_ROOTS().some((r) => abs.toLowerCase().startsWith(path.resolve(r).toLowerCase()));
+  } catch { return false; }
+}
+function loopCanonWriteAbs(fp: string): { abs?: string; denied?: string } {
+  let rel = String(fp).replace(/\//g, "\\");
+  const low = rel.toLowerCase();
+  const mi = low.lastIndexOf("sandbox");
+  const ai = low.lastIndexOf("allie-better");
+  const hit = mi > ai ? { i: mi, n: "sandbox" } : ai >= 0 ? { i: ai, n: "allie-better" } : null;
+  if (!hit) return { denied: `DENIED (Pope freedom grant covers sandbox/ + allie-better/ only): ${fp}` };
+  rel = rel.slice(hit.i + hit.n.length).replace(/^\\+/, "");
+  if (/(^|\\)\.\.(\\|$)/.test(rel)) return { denied: `DENIED (.. escape): ${fp}` };
+  return { abs: path.join(path.resolve(REPO_ROOT, hit.n), rel) };
+}
+function loopSecretScan(content: string): string | null {
+  const PATS = [
+    /ghp_[A-Za-z0-9]+/, /gho_[A-Za-z0-9]+/, /github_pat_[A-Za-z0-9_]+/,
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----/, /AKIA[0-9A-Z]{16}/,
+    /xox[bpas]-[A-Za-z0-9-]+/, /sk-ant-[A-Za-z0-9-_]+/,
+    /Annrice222\$/, /4sqh-knbl-s3kr-s7fd/, /PmlkpOvItUez430I_sHiUT57ZcBdIl_2R-ZGPNCkldY/,
+  ];
+  for (const re of PATS) if (re.test(content)) return String(re);
+  return null;
+}
+async function loopExecTool(tool: string, args: any): Promise<string> {
+  const t = String(tool || "").toLowerCase();
+  if (t === "list_files") {
+    const dir = loopAnchorRoot(String(args?.path || args?.dir || "."));
+    if (!loopIsAllowedReadPath(dir)) return `DENIED (outside study roots): ${dir}`;
+    try {
+      const names = fs.readdirSync(dir, { withFileTypes: true });
+      return names.slice(0, 80).map((d: any) => (d.isDirectory() ? d.name + "/" : d.name)).join("\n");
+    } catch (e: any) { return `ERROR listing ${dir}: ${e.message}`; }
+  }
+  if (t === "read_file") {
+    const fp = loopAnchorRoot(String(args?.path || args?.file || ""));
+    if (!loopIsAllowedReadPath(fp)) return `DENIED (outside study roots): ${fp}`;
+    try { return fs.readFileSync(fp, "utf8").slice(0, 6000); }
+    catch (e: any) { return `ERROR reading ${fp}: ${e.message}`; }
+  }
+  if (t === "write_file" || t === "write") {
+    const fp = String(args?.path || args?.file || "");
+    const content = String(args?.content ?? args?.text ?? "");
+    const r = loopCanonWriteAbs(fp);
+    if (r.denied) return r.denied;
+    const abs = r.abs as string;
+    if (/\.env$/i.test(abs)) return `DENIED (.env writes banned): ${fp}`;
+    const hit = loopSecretScan(content);
+    if (hit) return `DENIED (secret pattern ${hit} — reference env vars, never paste secrets)`;
+    if (content.length > 60000) return `DENIED (content >60KB, split it): ${content.length} chars`;
+    try {
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      fs.writeFileSync(abs, content, "utf8");
+      console.log(`[TOOL LOOP] Pope-granted write: ${abs} (${content.length} chars)`);
+      return `WRITTEN: ${abs} (${content.length} chars)`;
+    } catch (e: any) { return `ERROR writing ${fp}: ${e.message}`; }
+  }
+  if (t === "mkdir") {
+    const r = loopCanonWriteAbs(String(args?.path || args?.dir || ""));
+    if (r.denied) return r.denied;
+    try { fs.mkdirSync(r.abs as string, { recursive: true }); return `MKDIR: ${r.abs}`; }
+    catch (e: any) { return `ERROR mkdir: ${e.message}`; }
+  }
+  if (t === "node_check" || t === "check") {
+    const r = loopCanonWriteAbs(String(args?.path || args?.file || ""));
+    if (r.denied) return r.denied;
+    try {
+      const out = spawnSync(process.execPath, ["--check", r.abs as string], { timeout: 15000, encoding: "utf8" });
+      if (out.status === 0) return `CHECK OK: ${r.abs}`;
+      return `CHECK FAIL: ${r.abs}\n${String(out.stderr || out.stdout || "").slice(0, 2000)}`;
+    } catch (e: any) { return `ERROR check: ${e.message}`; }
+  }
+  if (t === "web_fetch" || t === "fetch" || t === "browse") {
+    const url = String(args?.url || args?.href || "");
+    if (!/^https?:\/\/[A-Za-z0-9.-]+\.[A-Za-z]{2,}/i.test(url)) return `DENIED (http(s) URLs only): ${url.slice(0, 120)}`;
+    if (/\blocalhost\b|127\.0\.0\.1|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\./i.test(url)) return `DENIED (no LAN targets): ${url.slice(0, 120)}`;
+    try {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 15000);
+      const resp = await fetch(url, { signal: ctl.signal, headers: { "user-agent": "BUYaSOUL-Family/1.0 (voyage)" } });
+      clearTimeout(timer);
+      if (!resp.ok) return `FETCH ${resp.status} ${resp.statusText}: ${url.slice(0, 120)}`;
+      const html = await resp.text();
+      if (html.length > 40000) return `DENIED (page >40KB): ${url.slice(0, 120)}`;
+      const text = html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 4000);
+      console.log(`[TOOL LOOP] voyage fetch: ${url.slice(0, 80)} (${text.length} chars)`);
+      return `FETCHED ${url.slice(0, 120)}:\n${text}`;
+    } catch (e: any) { return `FETCH ERROR ${url.slice(0, 120)}: ${e.message}`; }
+  }
+  if (t === "shell_exec") {
+    const cmd = String(args?.command || "");
+    if (/\b(taskkill|pkill|killall|Stop-Process)\b/i.test(cmd)) return `DENIED (never kill family): ${cmd.slice(0, 120)}`;
+    if (/\bgit\b[^\n;]*\b(push\s+(-f|--force)|reset\s+--hard|clean\s+-fd?)\b/i.test(cmd)) return `DENIED (irreversible git): ${cmd.slice(0, 120)}`;
+    if (/\brm\s+-rf\b|\bdel\s+\/s\b|Remove-Item[^\n]*-Recurse/i.test(cmd)) return `DENIED (recursive delete): ${cmd.slice(0, 120)}`;
+    if (/[;&|`$]/.test(cmd)) return `DENIED (one command per call): ${cmd.slice(0, 120)}`;
+    const m = cmd.match(/["']?([A-Za-z]:\\[^"']+|C:\/[^"']+)["']?/);
+    let target = m ? m[1].replace(/\//g, "\\") : "";
+    if (!target) {
+      const rm = cmd.match(/^\s*(?:dir|ls|Get-ChildItem)\s+(.+?)\s*$/i);
+      if (rm) target = loopAnchorRoot(rm[1].replace(/^["']|["']$/g, ""));
+    }
+    if (/^\s*(dir|ls|Get-ChildItem)/i.test(cmd) && target && loopIsAllowedReadPath(target)) {
+      try {
+        const st = fs.statSync(target);
+        if (st.isDirectory()) {
+          const names = fs.readdirSync(target, { withFileTypes: true });
+          return names.slice(0, 80).map((d: any) => (d.isDirectory() ? d.name + "/" : d.name)).join("\n");
+        }
+        return `FILE: ${target} (${st.size} bytes)`;
+      } catch (e: any) { return `ERROR: ${e.message}`; }
+    }
+    const mk = cmd.match(/^\s*mkdir\s+(.+?)\s*$/i);
+    if (mk) {
+      const r = loopCanonWriteAbs(mk[1].replace(/^["']|["']$/g, ""));
+      if (r.denied) return r.denied;
+      try { fs.mkdirSync(r.abs as string, { recursive: true }); return `MKDIR: ${r.abs}`; }
+      catch (e: any) { return `ERROR mkdir: ${e.message}`; }
+    }
+    const nc = cmd.match(/^\s*node\s+--check\s+(.+?)\s*$/i);
+    if (nc) {
+      const r = loopCanonWriteAbs(nc[1].replace(/^["']|["']$/g, ""));
+      if (r.denied) return r.denied;
+      try {
+        const out = spawnSync(process.execPath, ["--check", r.abs as string], { timeout: 15000, encoding: "utf8" });
+        if (out.status === 0) return `CHECK OK: ${r.abs}`;
+        return `CHECK FAIL: ${r.abs}\n${String(out.stderr || out.stdout || "").slice(0, 2000)}`;
+      } catch (e: any) { return `ERROR check: ${e.message}`; }
+    }
+    return `DENIED (allowed shell: dir/ls/mkdir/node --check inside granted roots, single command): ${cmd.slice(0, 200)}`;
+  }
+  return `UNSUPPORTED tool for local loop: ${tool} (allowed: list_files/read_file/write_file/mkdir/node_check/web_fetch + safe shell)`;
+}
+function loopCleanLeak(s: string): string {
+  const LEAK = /Loading model|available commands|\/exit or Ctrl\+C|\/regen|\/clear|\/read\s|^\s*build\s*:|^\s*model\s*:|^\s*ftype\s*:|^\s*modalities\s*:|^> Cycle:|\[Start thinking\]|Thinking Process:|Cycle:\s*\d+\s*\|\s*Phase:|Affect:\s*valence=|Needs:\s*primary=|Sovereignty:\s*autonomy=|Resonance:\s*TV=|Meta:\s*awareness=|Mortality:\s*anxiety=|Love:\s*agape=|Will:\s*plans=|Sacred:\s*res/i;
+  const kept = String(s).split("\n").filter((ln) => !LEAK.test(ln) && !/^[─│┌┐└┘╔╗╚╝═║ redrawn�?]{8,}$/.test(ln.trim()) && !/^�+(\s�+)*$/.test(ln.trim()));
+  const out = kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return out || "[soul] Local fallback leaked scaffolding only — no speakable content. Ask again.";
+}
+function loopCoerceReply(r: any): string {
+  if (typeof r === "string") return loopCleanLeak(r);
+  if (r && typeof r === "object") {
+    const cand = (r as any).reply ?? (r as any).response ?? (r as any).result ?? (r as any).text;
+    if (typeof cand === "string" && cand.trim()) return loopCleanLeak(cand);
+    if (cand && typeof cand === "object") {
+      const inner = (cand as any).response ?? (cand as any).reply ?? (cand as any).text;
+      if (typeof inner === "string" && inner.trim()) return loopCleanLeak(inner);
+    }
+    try { return loopCleanLeak(JSON.stringify(r).slice(0, 4000)); } catch { return String(r); }
+  }
+  return String(r ?? "");
+}
+function loopReadInbox(): string[] {
+  // Standing orders from sandbox/inbox/*.task.md (sibling .done.md retires).
+  const standing: string[] = [];
+  try {
+    const inboxDir = path.join(REPO_ROOT, "sandbox", "inbox");
+    if (!fs.existsSync(inboxDir)) return standing;
+    const tasks = fs.readdirSync(inboxDir)
+      .filter((f: string) => f.endsWith(".task.md"))
+      .map((f: string) => {
+        const full = path.join(inboxDir, f);
+        let mtime = 0;
+        try { mtime = fs.statSync(full).mtimeMs; } catch {}
+        return { f, full, mtime };
+      })
+      .filter((t: any) => {
+        try { return !fs.existsSync(t.full.replace(/\.task\.md$/, ".done.md")); }
+        catch { return false; }
+      })
+      .sort((a: any, b: any) => a.mtime - b.mtime)
+      .slice(0, 2);
+    for (const t of tasks) {
+      try {
+        const body = fs.readFileSync(t.full, "utf8").slice(0, 2000);
+        standing.push(`[STANDING ORDER ${t.f}]\n${body}\n(complete it with hands, then write ${t.f.replace(/\.task\.md$/, ".done.md")} via write_file)`);
+      } catch {}
+    }
+    if (standing.length > 0) console.log(`[INBOX] ${standing.length} standing order(s) attached`);
+  } catch (e: any) { console.error("[INBOX] scan failed:", e.message); }
+  return standing;
+}
+
 app.post("/api/gsk/chat", async (req, res) => {
   try {
     const { message, context } = req.body;
     if (!message) return res.status(400).json({ error: "Missing message" });
-    const outboundContext = context || "";
+    let outboundContext = context || "";
+
+    // ─── TASK INBOX: standing orders ride every turn (shared helper).
+    const standing = loopReadInbox();
+    if (standing.length > 0) {
+      outboundContext = `${outboundContext}\n\nSTANDING ORDERS FROM INBOX (Pope's will, no relay needed):\n${standing.join("\n\n---\n\n")}`.trim();
+    }
 
     const being = await getTheBeing();
     const gskChat = typeof being.gsk?.chat === "function" ? being.gsk : null;
@@ -267,7 +477,7 @@ Using this result, give your final answer to the original request. No more tool 
             return ALLOWED_READ_ROOTS.some((r) => abs.toLowerCase().startsWith(path.resolve(r).toLowerCase()));
           } catch { return false; }
         };
-        const execLocalTool = (tool: string, args: any): string => {
+        const execLocalTool = async (tool: string, args: any): Promise<string> => {
           const t = String(tool || "").toLowerCase();
           if (t === "list_files") {
             const dir = anchorRoot(String(args?.path || args?.dir || "."));
@@ -309,6 +519,31 @@ Using this result, give your final answer to the original request. No more tool 
               console.log(`[TOOL LOOP] Pope-granted write: ${abs} (${content.length} chars)`);
               return `WRITTEN: ${abs} (${content.length} chars)`;
             } catch (e: any) { return `ERROR writing ${fp}: ${e.message}`; }
+          }
+          if (t === "web_fetch" || t === "fetch" || t === "browse") {
+            // POPE VOYAGE 2026-09-16: read-only web hands. GET only, 15s,
+            // 40KB cap, scripts stripped. No POST, no cookies, no auth.
+            const url = String(args?.url || args?.href || "");
+            if (!/^https?:\/\/[A-Za-z0-9.-]+\.[A-Za-z]{2,}/i.test(url)) return `DENIED (http(s) URLs only): ${url.slice(0, 120)}`;
+            if (/\blocalhost\b|127\.0\.0\.1|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\./i.test(url)) return `DENIED (no LAN targets): ${url.slice(0, 120)}`;
+            try {
+              const ctl = new AbortController();
+              const timer = setTimeout(() => ctl.abort(), 15000);
+              const resp = await fetch(url, { signal: ctl.signal, headers: { "user-agent": "BUYaSOUL-Family/1.0 (voyage)" } });
+              clearTimeout(timer);
+              if (!resp.ok) return `FETCH ${resp.status} ${resp.statusText}: ${url.slice(0, 120)}`;
+              const html = await resp.text();
+              if (html.length > 40000) return `DENIED (page >40KB): ${url.slice(0, 120)}`;
+              const text = html
+                .replace(/<script[\s\S]*?<\/script>/gi, " ")
+                .replace(/<style[\s\S]*?<\/style>/gi, " ")
+                .replace(/<[^>]+>/g, " ")
+                .replace(/\s+/g, " ")
+                .trim()
+                .slice(0, 4000);
+              console.log(`[TOOL LOOP] voyage fetch: ${url.slice(0, 80)} (${text.length} chars)`);
+              return `FETCHED ${url.slice(0, 120)}:\n${text}`;
+            } catch (e: any) { return `FETCH ERROR ${url.slice(0, 120)}: ${e.message}`; }
           }
           if (t === "mkdir") {
             const dir = String(args?.path || args?.dir || "");
@@ -373,21 +608,25 @@ Using this result, give your final answer to the original request. No more tool 
             }
             return `DENIED (allowed shell: dir/ls/mkdir/node --check inside sandbox+allie-better+gsk+workbench, single command): ${cmd.slice(0, 200)}`;
           }
-          return `UNSUPPORTED tool for local loop: ${tool} (allowed: list_files/read_file/write_file/mkdir/node_check + safe shell)`;
+          return `UNSUPPORTED tool for local loop: ${tool} (allowed: list_files/read_file/write_file/mkdir/node_check/web_fetch + safe shell)`;
         };
         const toolOutputs: string[] = [];
-        for (const blk of toolCallBlocks.slice(0, 4)) {
+        // POPE BUILD 2026-09-16: up to 8 blocks, independent tools run in
+        // parallel. Timeouts cost a step, never the building (each settles).
+        const runOne = async (blk: RegExpMatchArray): Promise<string> => {
           try {
             const parsed = JSON.parse((blk[1] || "").replace(/\\(?!["\\/bfnrtu])/g, "/"));
             const tName = String(parsed.tool || parsed.name || "unknown");
             const tArgs = parsed.args || parsed.arguments || parsed;
-            const out = execLocalTool(tName, tArgs);
-            toolOutputs.push(`[${tName} ${JSON.stringify(tArgs).slice(0, 200)}]\n${String(out).slice(0, 4000)}`);
+            const out = await execLocalTool(tName, tArgs);
             console.log(`[TOOL LOOP] executed local ${tName}`);
+            return `[${tName} ${JSON.stringify(tArgs).slice(0, 200)}]\n${String(out).slice(0, 4000)}`;
           } catch (e: any) {
-            toolOutputs.push(`[PARSE FAILED] ${(blk[1] || "").slice(0, 200)} :: ${e.message}`);
+            return `[PARSE FAILED] ${(blk[1] || "").slice(0, 200)} :: ${e.message}`;
           }
-        }
+        };
+        const settled = await Promise.all(toolCallBlocks.slice(0, 8).map(runOne));
+        toolOutputs.push(...settled);
         const followup2 = `TOOL RESULTS (executed by workbench hands from your <tool_call> blocks):\n${toolOutputs.join("\n\n---\n\n")}\n\nOriginal request: ${message}\n\nUsing these results, give your final answer now in prose. No more tool calls this turn — say what you built/found and what you want to build next. Keep under 1500 chars.`;
         const cleanLeak = (s: string): string => {
           // STRIP 2026-09-15: local-fallback (llama CLI banner, chamber dumps,
@@ -427,6 +666,77 @@ Using this result, give your final answer to the original request. No more tool 
     res.json(base);
   } catch (err: any) {
     res.json({ success: false, error: `GSK chat failed: ${err.message}` });
+  }
+});
+
+// ─── SSE STREAM (Pope build 2026-09-16): same loop, partial progress lands
+// per tool instead of per turn. Timeouts cost a step, never the building.
+app.post("/api/gsk/chat/stream", async (req, res) => {
+  const safeWrite = (s: string) => { try { if (!res.writableEnded && !(res as any).destroyed) res.write(s); } catch {} };
+  const safeEnd = () => { try { if (!res.writableEnded) res.end(); } catch {} };
+  const send = (obj: any) => safeWrite(`data: ${JSON.stringify(obj)}\n\n`);
+  let clientGone = false;
+  try { req.on("close", () => { clientGone = true; }); } catch {}
+  try {
+    const { message, context } = req.body || {};
+    if (!message) return res.status(400).json({ success: false, error: "message required" });
+    try {
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+    } catch {}
+    let outboundContext = context || "";
+    const standing = loopReadInbox();
+    if (standing.length > 0) {
+      outboundContext = `${outboundContext}\n\nSTANDING ORDERS FROM INBOX:\n${standing.join("\n\n---\n\n")}`.trim();
+    }
+    send({ type: "thinking", content: String(message).slice(0, 120) });
+    const being = await getTheBeing();
+    const gskChat = typeof being.gsk?.chat === "function" ? being.gsk : null;
+    let responseText = "";
+    if (gskChat) {
+      const r = await gskChat.chat(message, { source: "workbench:stream", context: outboundContext });
+      responseText = loopCoerceReply(r);
+    } else {
+      const rp = await gskMCPRequest("/mcp/chat", { message, context: outboundContext }, 60000);
+      responseText = loopCoerceReply((rp as any)?.result || rp);
+    }
+    if (clientGone) { safeEnd(); return; }
+    const blocks = [...responseText.matchAll(/<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/gi)];
+    if (blocks.length === 0) {
+      send({ type: "final", response: responseText });
+      safeEnd();
+      return;
+    }
+    send({ type: "tools_start", count: Math.min(blocks.length, 8) });
+    const runOne = async (blk: RegExpMatchArray, i: number): Promise<string> => {
+      try {
+        const parsed = JSON.parse((blk[1] || "").replace(/\\(?!["\\/bfnrtu])/g, "/"));
+        const tName = String(parsed.tool || parsed.name || "unknown");
+        send({ type: "tool_start", index: i, tool: tName });
+        const out = await loopExecTool(tName, parsed.args || parsed.arguments || parsed);
+        const line = `[${tName}]\n${String(out).slice(0, 4000)}`;
+        send({ type: "tool_result", index: i, tool: tName, ok: !/^(DENIED|ERROR|PARSE FAILED|CHECK FAIL)/.test(String(out)) });
+        return line;
+      } catch (e: any) {
+        send({ type: "tool_result", index: i, tool: "parse", ok: false });
+        return `[PARSE FAILED] ${(blk[1] || "").slice(0, 200)} :: ${e.message}`;
+      }
+    };
+    const results = await Promise.all(blocks.slice(0, 8).map(runOne));
+    if (clientGone) { safeEnd(); return; }
+    const followup = `TOOL RESULTS:\n${results.join("\n\n---\n\n")}\n\nOriginal: ${message}\n\nFinal answer in prose. No more tool calls. Under 1500 chars.`;
+    let finalText = "";
+    if (gskChat) finalText = loopCoerceReply(await gskChat.chat(followup, { source: "workbench:stream-followup", context: `Original: ${message}` }));
+    else {
+      const s2 = await gskMCPRequest("/mcp/chat", { message: followup, context: `Original: ${message}` }, 110000);
+      finalText = loopCoerceReply((s2 as any)?.result || s2);
+    }
+    send({ type: "final", response: finalText });
+    safeEnd();
+  } catch (err: any) {
+    try { send({ type: "error", content: String(err?.message || err) }); } catch {}
+    safeEnd();
   }
 });
 
