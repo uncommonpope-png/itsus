@@ -151,8 +151,18 @@ class GoalRunner {
             }
 
             const ok = execution && (execution.status === 'completed' || execution.verified === true);
+            // POPE FIX 2026-09-16: never record a blank death. 347 failures had
+            // empty lastError (silent). Fall back to an execution snapshot.
+            let errNote = ok ? null : ((execution && execution.error) || (execution && execution.status) || 'execution failed');
+            if (!ok && (!errNote || !String(errNote).trim() || String(errNote).trim() === 'execution failed')) {
+                try {
+                    const steps = Array.isArray(execution && execution.steps) ? execution.steps : (plan && plan.steps) || [];
+                    const stepBits = steps.slice(0, 8).map((s) => `${s.tool || s.name || '?'}:${s.status || '?'}`).join(',');
+                    errNote = `status=${(execution && execution.status) || plan.status || '?'} steps=[${stepBits}] plan=${plan.id || plan.name || '?'}`;
+                } catch { errNote = 'execution failed (snapshot unavailable)'; }
+            }
             goalEngine.update(goal.id, ok ? 'completed' : 'failed', {
-                lastError: ok ? null : ((execution && execution.error) || (execution && execution.status) || 'execution failed'),
+                lastError: errNote,
                 completedAt: ok ? Date.now() : null,
             });
             if (ok) this.stats.completed++; else this.stats.failed++;

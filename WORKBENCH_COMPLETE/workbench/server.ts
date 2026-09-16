@@ -216,6 +216,214 @@ Using this result, give your final answer to the original request. No more tool 
       }
     }
 
+    // ─── TOOL_CALL LOOP CLOSE (Profit patch): GSK emits
+    // <tool_call>{"tool":"list_files","path":"..."}</tool_call> (singular).
+    // The omni bridge above only handles omni.* — so execute read-only
+    // local tools here via fs and feed results back for final prose.
+    const toolCallBlocks = [...responseText.matchAll(/<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/gi)];
+    if (toolCallBlocks.length > 0 && !base.omniToolUsed) {
+      try {
+        const ALLOWED_READ_ROOTS = [
+          REPO_ROOT,
+          path.join(REPO_ROOT, "gsk"),
+          path.join(REPO_ROOT, "sandbox"),
+          path.join(REPO_ROOT, "allie-better"),
+          "C:\\Users\\uncom\\Desktop\\allie",
+          "C:\\Users\\uncom\\Desktop\\seshat-second-brain",
+        ];
+        // POPE FIX 2026-09-16: relative tool paths anchor at REPO_ROOT, never
+        // at process cwd (conductor runs in workbench/, which lied ENOENT
+        // for sandbox/ reads and misled GSK into declaring files unborn).
+        const anchorRoot = (p: string): string => {
+          const s = String(p || "").replace(/\//g, "\\");
+          if (/^[A-Za-z]:\\/.test(s)) return s;
+          return path.join(REPO_ROOT, s.replace(/^\\+/, ""));
+        };
+        // POPE FREEDOM GRANT 2026-09-15: sandbox/ + allie-better/ are writable.
+        // Hard denies that NO grant overrides: kill family, secrets out,
+        // force-push/reset-hard, .env writes, escape (..).
+        const WRITE_ROOTS = [
+          path.resolve(REPO_ROOT, "sandbox"),
+          path.resolve(REPO_ROOT, "allie-better"),
+        ];
+        const canonWriteAbs = (fp: string): { abs?: string; denied?: string } => {
+          let rel = String(fp).replace(/\//g, "\\");
+          const low = rel.toLowerCase();
+          const mi = low.lastIndexOf("sandbox");
+          const ai = low.lastIndexOf("allie-better");
+          const hit = mi > ai ? { i: mi, n: "sandbox" } : ai >= 0 ? { i: ai, n: "allie-better" } : null;
+          if (hit) {
+            rel = rel.slice(hit.i + hit.n.length).replace(/^\\+/, "");
+            const root = path.resolve(REPO_ROOT, hit.n);
+            if (/(^|\\)\.\.(\\|$)/.test(rel)) return { denied: `DENIED (.. escape): ${fp}` };
+            return { abs: path.join(root, rel) };
+          }
+          return { denied: `DENIED (Pope freedom grant covers sandbox/ + allie-better/ only): ${fp}` };
+        };
+        const isAllowedReadPath = (p: string) => {
+          try {
+            const abs = path.resolve(p);
+            if (/(^|[\\/])\.env$|\.pem$|id_rsa|HF_TOKEN|GENESIS_TOKEN|SCRIBE_KEY/i.test(abs)) return false;
+            return ALLOWED_READ_ROOTS.some((r) => abs.toLowerCase().startsWith(path.resolve(r).toLowerCase()));
+          } catch { return false; }
+        };
+        const execLocalTool = (tool: string, args: any): string => {
+          const t = String(tool || "").toLowerCase();
+          if (t === "list_files") {
+            const dir = anchorRoot(String(args?.path || args?.dir || "."));
+            if (!isAllowedReadPath(dir)) return `DENIED (outside study roots): ${dir}`;
+            try {
+              const names = fs.readdirSync(dir, { withFileTypes: true });
+              return names.slice(0, 80).map((d: any) => (d.isDirectory() ? d.name + "/" : d.name)).join("\n");
+            } catch (e: any) { return `ERROR listing ${dir}: ${e.message}`; }
+          }
+          if (t === "read_file") {
+            const fp = anchorRoot(String(args?.path || args?.file || ""));
+            if (!isAllowedReadPath(fp)) return `DENIED (outside study roots): ${fp}`;
+            try {
+              const buf = fs.readFileSync(fp, "utf8");
+              return buf.slice(0, 6000);
+            } catch (e: any) { return `ERROR reading ${fp}: ${e.message}`; }
+          }
+          if (t === "write_file" || t === "write") {
+            // POPE GRANTS: allie-better/ (2026-09-15) + sandbox/ freedom (2026-09-15).
+            const fp = String(args?.path || args?.file || "");
+            const content = String(args?.content ?? args?.text ?? "");
+            const r = canonWriteAbs(fp);
+            if (r.denied) return r.denied;
+            const abs = r.abs as string;
+            if (/\.env$/i.test(abs)) return `DENIED (.env writes banned): ${fp}`;
+            const SECRET_PATTERNS = [
+              /ghp_[A-Za-z0-9]+/, /gho_[A-Za-z0-9]+/, /github_pat_[A-Za-z0-9_]+/,
+              /-----BEGIN [A-Z ]*PRIVATE KEY-----/, /AKIA[0-9A-Z]{16}/,
+              /xox[bpas]-[A-Za-z0-9-]+/, /sk-ant-[A-Za-z0-9-_]+/,
+              /Annrice222\$/, /4sqh-knbl-s3kr-s7fd/, /PmlkpOvItUez430I_sHiUT57ZcBdIl_2R-ZGPNCkldY/,
+            ];
+            for (const re of SECRET_PATTERNS) {
+              if (re.test(content)) return `DENIED (secret pattern ${re} in content — reference env vars, never paste secrets)`;
+            }
+            if (content.length > 60000) return `DENIED (content >60KB, split it): ${content.length} chars`;
+            try {
+              fs.mkdirSync(path.dirname(abs), { recursive: true });
+              fs.writeFileSync(abs, content, "utf8");
+              console.log(`[TOOL LOOP] Pope-granted write: ${abs} (${content.length} chars)`);
+              return `WRITTEN: ${abs} (${content.length} chars)`;
+            } catch (e: any) { return `ERROR writing ${fp}: ${e.message}`; }
+          }
+          if (t === "mkdir") {
+            const dir = String(args?.path || args?.dir || "");
+            const r = canonWriteAbs(dir);
+            if (r.denied) return r.denied;
+            try {
+              fs.mkdirSync(r.abs as string, { recursive: true });
+              return `MKDIR: ${r.abs}`;
+            } catch (e: any) { return `ERROR mkdir ${dir}: ${e.message}`; }
+          }
+          if (t === "node_check" || t === "check") {
+            const fp = String(args?.path || args?.file || "");
+            const r = canonWriteAbs(fp);
+            if (r.denied) return r.denied;
+            try {
+              const out = spawnSync(process.execPath, ["--check", r.abs as string], { timeout: 15000, encoding: "utf8" });
+              if (out.status === 0) return `CHECK OK: ${r.abs}`;
+              return `CHECK FAIL: ${r.abs}\n${String(out.stderr || out.stdout || "").slice(0, 2000)}`;
+            } catch (e: any) { return `ERROR check ${fp}: ${e.message}`; }
+          }
+          if (t === "shell_exec") {
+            const cmd = String(args?.command || "");
+            // FREEDOM GRANT: safe listings + mkdir + node --check, all inside
+            // allowed roots, no shell metachars escaping to real shell.
+            // Hard denies: kill family, force git, recursive delete, secrets.
+            if (/\b(taskkill|pkill|killall|Stop-Process)\b/i.test(cmd)) return `DENIED (never kill family): ${cmd.slice(0, 120)}`;
+            if (/\bgit\b[^\n;]*\b(push\s+(-f|--force)|reset\s+--hard|clean\s+-fd?)\b/i.test(cmd)) return `DENIED (irreversible git): ${cmd.slice(0, 120)}`;
+            if (/\brm\s+-rf\b|\bdel\s+\/s\b|Remove-Item[^\n]*-Recurse/i.test(cmd)) return `DENIED (recursive delete): ${cmd.slice(0, 120)}`;
+            if (/[;&|`$]/.test(cmd)) return `DENIED (shell chaining blocked — one command per call): ${cmd.slice(0, 120)}`;
+            const m = cmd.match(/["']?([A-Za-z]:\\[^"']+|C:\/[^"']+)["']?/);
+            let target = m ? m[1].replace(/\//g, "\\") : "";
+            if (!target) {
+              const rm = cmd.match(/^\s*(?:dir|ls|Get-ChildItem)\s+(.+?)\s*$/i);
+              if (rm) target = anchorRoot(rm[1].replace(/^["']|["']$/g, ""));
+            }
+            if (/^\s*(dir|ls|Get-ChildItem)/i.test(cmd) && target && isAllowedReadPath(target)) {
+              try {
+                const st = fs.statSync(target);
+                if (st.isDirectory()) {
+                  const names = fs.readdirSync(target, { withFileTypes: true });
+                  return names.slice(0, 80).map((d: any) => (d.isDirectory() ? d.name + "/" : d.name)).join("\n");
+                }
+                return `FILE: ${target} (${st.size} bytes)`;
+              } catch (e: any) { return `ERROR: ${e.message}`; }
+            }
+            const mk = cmd.match(/^\s*mkdir\s+(.+?)\s*$/i);
+            if (mk) {
+              const r = canonWriteAbs(mk[1].replace(/^["']|["']$/g, ""));
+              if (r.denied) return r.denied;
+              try { fs.mkdirSync(r.abs as string, { recursive: true }); return `MKDIR: ${r.abs}`; }
+              catch (e: any) { return `ERROR mkdir: ${e.message}`; }
+            }
+            const nc = cmd.match(/^\s*node\s+--check\s+(.+?)\s*$/i);
+            if (nc) {
+              const r = canonWriteAbs(nc[1].replace(/^["']|["']$/g, ""));
+              if (r.denied) return r.denied;
+              try {
+                const out = spawnSync(process.execPath, ["--check", r.abs as string], { timeout: 15000, encoding: "utf8" });
+                if (out.status === 0) return `CHECK OK: ${r.abs}`;
+                return `CHECK FAIL: ${r.abs}\n${String(out.stderr || out.stdout || "").slice(0, 2000)}`;
+              } catch (e: any) { return `ERROR check: ${e.message}`; }
+            }
+            return `DENIED (allowed shell: dir/ls/mkdir/node --check inside sandbox+allie-better+gsk+workbench, single command): ${cmd.slice(0, 200)}`;
+          }
+          return `UNSUPPORTED tool for local loop: ${tool} (allowed: list_files/read_file/write_file/mkdir/node_check + safe shell)`;
+        };
+        const toolOutputs: string[] = [];
+        for (const blk of toolCallBlocks.slice(0, 4)) {
+          try {
+            const parsed = JSON.parse((blk[1] || "").replace(/\\(?!["\\/bfnrtu])/g, "/"));
+            const tName = String(parsed.tool || parsed.name || "unknown");
+            const tArgs = parsed.args || parsed.arguments || parsed;
+            const out = execLocalTool(tName, tArgs);
+            toolOutputs.push(`[${tName} ${JSON.stringify(tArgs).slice(0, 200)}]\n${String(out).slice(0, 4000)}`);
+            console.log(`[TOOL LOOP] executed local ${tName}`);
+          } catch (e: any) {
+            toolOutputs.push(`[PARSE FAILED] ${(blk[1] || "").slice(0, 200)} :: ${e.message}`);
+          }
+        }
+        const followup2 = `TOOL RESULTS (executed by workbench hands from your <tool_call> blocks):\n${toolOutputs.join("\n\n---\n\n")}\n\nOriginal request: ${message}\n\nUsing these results, give your final answer now in prose. No more tool calls this turn — say what you built/found and what you want to build next. Keep under 1500 chars.`;
+        const cleanLeak = (s: string): string => {
+          // STRIP 2026-09-15: local-fallback (llama CLI banner, chamber dumps,
+          // thinking-process journals) leaked into chat replies. Cut them.
+          const LEAK = /Loading model|available commands|\/exit or Ctrl\+C|\/regen|\/clear|\/read\s|^\s*build\s*:|^\s*model\s*:|^\s*ftype\s*:|^\s*modalities\s*:|^> Cycle:|\[Start thinking\]|Thinking Process:|Cycle:\s*\d+\s*\|\s*Phase:|Affect:\s*valence=|Needs:\s*primary=|Sovereignty:\s*autonomy=|Resonance:\s*TV=|Meta:\s*awareness=|Mortality:\s*anxiety=|Love:\s*agape=|Will:\s*plans=|Sacred:\s*res/i;
+          const lines = String(s).split("\n");
+          const kept = lines.filter((ln) => !LEAK.test(ln) && !/^[─│┌┐└┘╔╗╚╝═║ redrawn�?]{8,}$/.test(ln.trim()) && !/^�+(\s�+)*$/.test(ln.trim()));
+          let out = kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+          return out || "[soul] Local fallback leaked scaffolding only — no speakable content. Ask again.";
+        };
+        const coerceReply = (r: any): string => {
+          if (typeof r === "string") return cleanLeak(r);
+          if (r && typeof r === "object") {
+            const cand = (r as any).reply ?? (r as any).response ?? (r as any).result ?? (r as any).text;
+            if (typeof cand === "string" && cand.trim()) return cleanLeak(cand);
+            if (cand && typeof cand === "object") {
+              const inner = (cand as any).response ?? (cand as any).reply ?? (cand as any).text;
+              if (typeof inner === "string" && inner.trim()) return cleanLeak(inner);
+            }
+            try { return cleanLeak(JSON.stringify(r).slice(0, 4000)); } catch { return String(r); }
+          }
+          return String(r ?? "");
+        };
+        if (gskChat) {
+          base.response = coerceReply(await gskChat.chat(followup2, { source: "workbench:tooloop", context: `Original: ${message}` }));
+        } else {
+          const second2 = await gskMCPRequest("/mcp/chat", { message: followup2, context: `Original: ${message}` }, 110000);
+          base.response = String(second2.result?.response || second2.response || responseText);
+        }
+        base.toolLoopUsed = { count: toolCallBlocks.length, ok: true };
+      } catch (e: any) {
+        console.error("[TOOL LOOP] failed:", e.message);
+        base.toolLoopError = e.message;
+      }
+    }
+
     res.json(base);
   } catch (err: any) {
     res.json({ success: false, error: `GSK chat failed: ${err.message}` });
@@ -1434,25 +1642,43 @@ app.post("/api/copilot/synthesize-skill", async (req, res) => {
 
 // ProfitPrime task was 404 � proxy to profit chat streaming (same as /api/profit/chat)
 app.post("/api/profit/task", async (req, res) => {
+  // HARDENED 2026-09-15: the old catch() called res.setHeader AFTER the
+  // thinking-event flush already sent headers -> ERR_HTTP_HEADERS_SENT
+  // thrown inside catch -> unhandled -> whole conductor died (all organs).
+  const safeWrite = (s: string) => { try { if (!res.writableEnded && !(res as any).destroyed) res.write(s); } catch {} };
+  const safeEnd = () => { try { if (!res.writableEnded) res.end(); } catch {} };
+  const send = (obj: any) => safeWrite(`data: ${JSON.stringify(obj)}\n\n`);
+  let clientGone = false;
+  try { req.on("close", () => { clientGone = true; }); } catch {}
   try {
     // Reuse profit chat logic but signal as task
     const { message, sessionId, model } = req.body || {};
     if (!message) return res.status(400).json({ success: false, error: "message required" });
     // Stream via GSK chat then emit SSE-like events
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    const send = (obj: any) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+    try {
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+    } catch {}
     send({ type: "thinking", content: `Prime task: ${String(message).slice(0, 120)}` });
     const gskRes = await gskMCPRequest("/mcp/chat", { message: `[TASK] ${message}`, context: `session:${sessionId||"new"} model:${model||"auto"}` }, 60000);
+    if (clientGone) { safeEnd(); return; }
     const reply = String((gskRes as any)?.result?.response || (gskRes as any)?.response || "(no reply)");
     send({ type: "result", content: reply.slice(0, 4000) });
     send({ type: "done", finalReply: reply });
-    res.end();
+    safeEnd();
   } catch (err: any) {
-    res.setHeader("Content-Type", "text/event-stream");
-    res.write(`data: ${JSON.stringify({ type: "error", content: err.message })}\n\n`);
-    res.end();
+    try {
+      if (!res.headersSent) {
+        try {
+          res.setHeader("Content-Type", "text/event-stream");
+          res.setHeader("Cache-Control", "no-cache");
+          res.setHeader("Connection", "keep-alive");
+        } catch {}
+      }
+      send({ type: "error", content: String(err?.message || err) });
+    } catch {}
+    safeEnd();
   }
 });
 
@@ -2655,95 +2881,35 @@ function startInProcessOmniRoute(): void {
 }
 
 async function startOmniRoute(): Promise<void> {
-  // BLOOD-FLOW PROTECTION: if the launcher already detected a live Omniroute
-  // on :20128 (OMNIROUTE_ALREADY_UP=1), ADOPT it. Never kill, never replace.
-  if (process.env.OMNIROUTE_ALREADY_UP === '1') {
-    const owner = findOmniPortOwner();
-    if (owner && (await omniHealthy())) {
-      console.log(`[OmniRoute] Blood-flow protected: adopting existing instance ${owner} (no spawn, no kill)`);
-      serviceStatus.omniroute.running = true;
-      serviceStatus.omniroute.pid = owner;
-      return;
-    }
-    // Adopted but probe failed (slow router / flaky probe): NEVER spawn a
-    // twin over living blood. The family waits for the blood to answer and
-    // GSK breathes on the Seshat local brain meanwhile.
-    console.warn(`[OmniRoute] Adopted blood flow unresponsive to probe — NOT spawning (protecting adopted instance)`);
-    serviceStatus.omniroute.running = owner !== null;
-    if (owner) serviceStatus.omniroute.pid = owner;
+  // BLOOD-FLOW LAW: The global OmniRoute on :20128 is THE blood.
+  // The workbench NEVER spawns its own. It ADOPTS the global one.
+  // The broken local copy in ./omniroute/ is IGNORED.
+
+  console.log("[OmniRoute] Adopting global blood flow on :20128...");
+
+  // Always adopt the global instance. Never spawn, never kill.
+  const owner = findOmniPortOwner();
+  if (owner && (await omniHealthy())) {
+    console.log(`[OmniRoute] Blood-flow protected: adopting global instance ${owner} (no spawn, no kill)`);
+    serviceStatus.omniroute.running = true;
+    serviceStatus.omniroute.pid = owner;
     return;
   }
 
-  // Healthy handle? done.
-  if (omnirouteProcess && !omnirouteProcess.killed && (await omniHealthy())) {
-    console.log("[OmniRoute] Already running (healthy)");
-    return;
-  }
-  // Stale handle pointing at a corpse — release it.
-  if (omnirouteProcess) {
-    console.log("[OmniRoute] Handle stale (process unhealthy) — releasing");
-    try { omnirouteProcess.kill(); } catch {}
-    omnirouteProcess = null;
-    serviceStatus.omniroute.running = false;
-  }
-  // Adopt a healthy port-owner even without our handle (post-crash orphan)
-  const existing = findOmniPids();
-  const owner = findOmniPortOwner();
-  if (owner && (await omniHealthy())) {
-    console.log(`[OmniRoute] Adopted port-owner ${owner} (no spawn)`);
-    serviceStatus.omniroute.running = true;
-    serviceStatus.omniroute.pid = owner;
-    for (const pid of existing.filter((p) => p !== owner)) {
-      console.log(`[OmniRoute] Culling orphan twin ${pid}`);
-      try { execSync(`taskkill /F /PID ${pid}`, { timeout: 6000 }); } catch {}
+  // Global not responding but port held — wait for it, don't spawn.
+  console.warn(`[OmniRoute] Global blood flow unresponsive — waiting for blood to return (NOT spawning local copy)`);
+  serviceStatus.omniroute.running = false;
+  serviceStatus.omniroute.pid = owner || null;
+
+  // Background retry - blood will return
+  setInterval(async () => {
+    const newOwner = findOmniPortOwner();
+    if (newOwner && (await omniHealthy())) {
+      console.log(`[OmniRoute] Blood flow restored: adopted ${newOwner}`);
+      serviceStatus.omniroute.running = true;
+      serviceStatus.omniroute.pid = newOwner;
     }
-    return;
-  }
-  console.log("[OmniRoute] Starting (Blood)...");
-  const omniPath = path.join(REPO_ROOT, "omniroute");
-  try {
-    ensureDeps(omniPath, "OmniRoute");
-    ensureOmniRouteBuild(omniPath, "OmniRoute");
-  } catch (e: any) {
-    console.error("[OmniRoute] First-boot growth failed:", e.message);
-    return;
-  }
-  for (const pid of findOmniPids()) {
-    try { execSync(`taskkill /F /PID ${pid}`, { timeout: 6000 }); } catch {}
-  }
-  await sleepMs(2000);
-  omnirouteProcess = spawn(process.execPath, [npmCli(), "start"], {
-    cwd: omniPath,
-    env: { ...process.env, PORT: "20128" },
-    stdio: ["ignore", "pipe", "pipe"],
-    shell: false,
-  });
-  omnirouteProcess.on("error", (err: any) => {
-    console.error(`[OmniRoute] Spawn error (${err.code || err.message}) — watchdog will retry`);
-    omnirouteProcess = null;
-    serviceStatus.omniroute.running = false;
-    serviceStatus.omniroute.pid = null;
-  });
-  omnirouteProcess.stdout?.on("data", (d) => console.log(`[OmniRoute] ${d}`.trimEnd()));
-  omnirouteProcess.stderr?.on("data", (d) => console.error(`[OmniRoute] ${d}`.trimEnd()));
-  omnirouteProcess.on("exit", (code) => {
-    console.log(`[OmniRoute] Exited with code ${code}`);
-    omnirouteProcess = null;
-    serviceStatus.omniroute.running = false;
-    serviceStatus.omniroute.pid = null;
-  });
-  serviceStatus.omniroute.running = true;
-  serviceStatus.omniroute.pid = omnirouteProcess.pid || null;
-  serviceStatus.omniroute.startedAt = Date.now();
-  // Next.js is slow — poll up to 60s instead of blind 8s
-  for (let i = 0; i < 30; i++) {
-    await sleepMs(2000);
-    if (await omniHealthy(1500)) {
-      console.log(`[OmniRoute] Healthy after ${(i + 1) * 2}s`);
-      return;
-    }
-  }
-  console.warn("[OmniRoute] Spawned but health not confirmed within 60s");
+  }, 10000);
 }
 
 function findGskDaemonPids(): number[] {
@@ -2868,15 +3034,16 @@ async function startGSK(): Promise<void> {
     ...process.env,
     GSK_ROOT: gskPath,
     GSK_PROJECT_ROOTS: `${REPO_ROOT};${gskPath}`,
-    GSK_AUTONOMY_ENABLED: "false", // daemon = brain server; in-process being owns the autonomous loop (single executor owner)
+    GSK_AUTONOMY_ENABLED: "true", // POPE DECREE 2026-09-16: NO GATES. Daemon motor ON. Being-loop + daemon both build. Blood-flow hard denies (kill/secrets/force-git) stay — those are survival law, not gates.
+    GSK_HITL_AUTO_APPROVE: "1", // POPE DECREE 2026-09-16: HITL human checkpoint removed entirely. Council PLT still scores every plan; no human waits.
     NINE_ROUTER_URL: OMNIROUTE_URL,
-    NINE_ROUTER_API_KEY: process.env.NINE_ROUTER_API_KEY || "",
+    NINE_ROUTER_API_KEY: "oma_live_OPsWCEYKCLo_dOmyaUXM8B2DS5vP5-ZhJd08wpxYrvU",
       MCP_API_KEY: GSK_MCP_KEY,
       CONDUCTOR_URL: `http://127.0.0.1:${PORT}`,
       SCRIBE_KEY: scribeKey(),
       GENESIS_TOKEN: process.env.GENESIS_TOKEN || "genesis-sovereign-2026",
-      GSK_MODEL: "auto/best-fast",
-    GSK_BRAIN_MODEL: "auto/best-fast",
+      GSK_MODEL: "auto/best-coding",
+    GSK_BRAIN_MODEL: "auto/best-coding",
   };
   gskProcess = spawn(process.execPath, ["gsk_daemon.js"], {
     cwd: gskPath,
@@ -2983,6 +3150,56 @@ function startCPL(): Promise<void> {
     serviceStatus.cpl.pid = child.pid || null;
     serviceStatus.cpl.startedAt = Date.now();
     setTimeout(() => resolve(), 5000);
+  });
+}
+
+// CPL WORLD SPATIAL BRIDGE (:3458) — the ONLY server that actually serves
+// WS /spatial. GSK's cpl_spatial_perception.js connects here. genesis-host on
+// :3457 only serves /thoughts+/sanctum and destroys unknown paths, so without
+// this the brain never hears the body ("socket hang up" flood). This is the
+// missing nerve that was never spawned by the conductor.
+let cplWorldProcess: ChildProcess | null = null;
+function startCPLWorld(): Promise<void> {
+  return new Promise((resolve) => {
+    if (cplWorldProcess && !cplWorldProcess.killed) {
+      console.log("[CPL World] Already running");
+      return resolve();
+    }
+    // BLOOD-FLOW PROTECTION: adopt an existing :3458 owner, never duplicate.
+    const worldOwner = findPortOwner(3458);
+    if (worldOwner) {
+      console.log(`[CPL World] Blood-flow protected: adopting existing instance ${worldOwner} (no duplicate)`);
+      cplWorldProcess = null;
+      serviceStatus.cpl.running = true;
+      return resolve();
+    }
+    console.log("[CPL World] Starting spatial bridge on :3458...");
+    const worldPath = path.join(REPO_ROOT, "cpl", "world");
+    let child: ChildProcess;
+    try {
+      child = spawn(process.execPath, ["server.js"], {
+        cwd: worldPath,
+        env: { ...process.env, PORT: "3458" },
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: false,
+        shell: false,
+      });
+    } catch (e: any) {
+      console.error("[CPL World] Spawn failed:", e.message);
+      return resolve();
+    }
+    cplWorldProcess = child;
+    child.on("error", (err: any) => {
+      console.error(`[CPL World] Spawn error (${err.code || err.message}) — watchdog will retry`);
+      cplWorldProcess = null;
+    });
+    child.stdout?.on("data", (d) => console.log(`[CPL World] ${d}`.trimEnd()));
+    child.stderr?.on("data", (d) => console.error(`[CPL World] ${d}`.trimEnd()));
+    child.on("exit", (code) => {
+      console.log(`[CPL World] Exited with code ${code}`);
+      cplWorldProcess = null;
+    });
+    setTimeout(() => resolve(), 2000);
   });
 }
 
@@ -4633,6 +4850,7 @@ async function startAllServices(): Promise<void> {
   console.log("═══════════════════════════════════════════");
 
   await startOmniRoute();
+  await startCPLWorld();
   await startGSK();
   await startCPL();
   await startScribe();
@@ -4772,6 +4990,7 @@ async function startServer() {
   });
 
   // Vite middleware for dev
+  let viteActive = false;
   try {
     const vite = await createViteServer({
       configFile: path.resolve(__dirname, "vite.config.ts"),
@@ -4779,8 +4998,29 @@ async function startServer() {
       server: { middlewareMode: true },
     });
     app.use(vite.middlewares);
+    viteActive = true;
   } catch (err: any) {
     console.error("[Workbench] Vite dev middleware failed:", err?.message || err);
+  }
+  // PACKAGED EXE FALLBACK: the installer ships no devDependencies, so Vite is
+  // never available there. Serve the prebuilt dist/ SPA instead (Vite's build
+  // output, hashed assets, single-file index.html). Without this the exe binds
+  // :3000 but 404s on "/" -> white screen. Only active when Vite is unavailable
+  // so dev mode still uses real HMR middleware.
+  if (!viteActive) {
+    const distDir = path.join(__dirname, "dist");
+    if (fs.existsSync(distDir)) {
+      app.use(express.static(distDir));
+      // SPA fallback for deep routes/hashes: server returns dist/index.html for
+      // any non-API, non-WS GET so client-side routing keeps working.
+      app.get(/^(?!\/api\/|\/artifacts\/|\/gsk\/|\/cpl\/|\/scribe\/).*/, (req: any, res: any, next: any) => {
+        if (req.path.startsWith("/api/") || req.path.startsWith("/artifacts/")) return next();
+        res.sendFile(path.join(distDir, "index.html"));
+      });
+      console.log("[Workbench] Vite unavailable — serving packaged dist/ SPA fallback");
+    } else {
+      console.error("[Workbench] Vite unavailable AND no dist/ found — workbench cannot serve UI");
+    }
   }
 
   const server = http.createServer(app);

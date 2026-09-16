@@ -146,7 +146,11 @@ function stopWatcher() {
 // ─── Search ─────────────────────────────────────────────────
 
 function searchBrain(query, options = {}) {
-  const q = query.toLowerCase();
+  // TOKENIZED 2026-09-15: old code matched the whole phrase literally, so
+  // multi-word queries scored 0 everywhere. Now every word len>=3 scores.
+  const raw = String(query || "").toLowerCase();
+  const tokens = raw.split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+  const toks = tokens.length > 0 ? tokens : [raw].filter((w) => w.length > 0);
   const maxResults = options.limit || 20;
   const results = [];
 
@@ -162,16 +166,22 @@ function searchBrain(query, options = {}) {
 
   for (const entry of allEntries) {
     try {
+      const nameLow = entry.name.toLowerCase();
       const content = fs.readFileSync(entry.fullPath, 'utf8').toLowerCase();
-      const score = (
-        (entry.name.toLowerCase().includes(q) ? 10 : 0) +
-        (content.includes(q) ? 5 : 0) +
-        (Object.values(entry.meta).some(v => String(v).toLowerCase().includes(q)) ? 3 : 0)
-      );
-      if (score > 0) {
+      const metaLow = Object.values(entry.meta).map((v) => String(v).toLowerCase()).join(' ');
+      let score = 0;
+      let firstIdx = -1;
+      for (const q of toks) {
+        if (nameLow.includes(q)) score += 10;
+        if (content.includes(q)) score += 5;
+        if (metaLow.includes(q)) score += 3;
         const idx = content.indexOf(q);
+        if (idx >= 0 && (firstIdx < 0 || idx < firstIdx)) firstIdx = idx;
+      }
+      if (score > 0) {
+        const idx = firstIdx;
         const contextStart = Math.max(0, idx - 80);
-        const contextEnd = Math.min(content.length, idx + q.length + 80);
+        const contextEnd = Math.min(content.length, idx + 80);
         const context = idx >= 0
           ? (contextStart > 0 ? '...' : '') + content.substring(contextStart, contextEnd) + (contextEnd < content.length ? '...' : '')
           : entry.preview;
