@@ -4199,6 +4199,57 @@ async function getTheBeing(): Promise<any> {
     } catch {}
   }, "being:broadcast-router");
 
+  // P2.4 DEBATE + SCRIBE JUDGE: PROPOSE → CRITIQUE → VOTE → VERDICT.
+  // Quorum = 3 votes, or 2 matching either way. Scribe records the verdict
+  // (his first judging act) and it publishes for the thread. Tallies are
+  // in-memory (restart clears open debates — verdicts persist via Scribe).
+  const debateTallies = new Map<string, any>();
+  const debateKey = (d: any) => String(d.conversationId || d.thread || "open");
+  busMod.subscribe("debate.propose", (e: any) => {
+    try {
+      const d = e.data || {};
+      if (!d.proposal) return;
+      debateTallies.set(debateKey(d), {
+        proposal: String(d.proposal).slice(0, 1000),
+        by: d.from || d.source || "unknown",
+        votes: [], critiques: [], done: false,
+      });
+    } catch {}
+  }, "being:debate-propose");
+  busMod.subscribe("debate.critique", (e: any) => {
+    try {
+      const d = e.data || {};
+      const t = debateTallies.get(debateKey(d));
+      if (!t || t.done) return;
+      t.critiques.push({ by: d.from || d.source || "unknown", points: String(d.points || d.message || "").slice(0, 1000) });
+    } catch {}
+  }, "being:debate-critique");
+  busMod.subscribe("debate.vote", (e: any) => {
+    try {
+      const d = e.data || {};
+      const t = debateTallies.get(debateKey(d));
+      if (!t || t.done) return;
+      const by = d.from || d.source || "unknown";
+      if (t.votes.some((v: any) => v.by === by)) return; // one voice, one vote
+      t.votes.push({ by, for: d.for === true || String(d.vote || "").toLowerCase() === "for" });
+      const fors = t.votes.filter((v: any) => v.for).length;
+      const against = t.votes.length - fors;
+      if (t.votes.length >= 3 || fors >= 2 || against >= 2) {
+        t.done = true;
+        const verdict = fors > against ? "PASSED" : against > fors ? "REJECTED" : "TIED";
+        const text = `DEBATE ${verdict}: "${t.proposal.slice(0, 200)}" — ${fors} for / ${against} against (${t.votes.map((v: any) => v.by).join(", ")}). Critiques: ${t.critiques.length}.`;
+        try {
+          scribeMod.record({ type: "verdict", summary: text.slice(0, 500), tags: ["debate", "verdict", verdict.toLowerCase()], weight: 0.9 });
+        } catch {}
+        busMod.publish("debate.verdict", {
+          verdict, proposal: t.proposal, fors, against,
+          conversationId: d.conversationId, source: "scribe:judge",
+        });
+        console.log(`[BUS] ${text.slice(0, 160)}`);
+      }
+    } catch {}
+  }, "being:debate-judge");
+
   // One Tool Atlas, one PLT gate � every aspect shares every tool.
   await harnessMod.seed({ gsk: gskMod, scribe: scribeMod, seshat: seshatMod, bus: busMod });
   harnessMod.initBusBindings(busMod);
@@ -4456,7 +4507,7 @@ app.post("/api/being/bus/publish", async (req, res) => {
     const being = await getTheBeing();
     const { type, data, as } = req.body || {};
     if (!type || typeof type !== "string") return res.json({ success: false, error: "type required" });
-    const allowed = new Set(["agent.chat", "ask", "answer", "soul.insight", "soul.goal", "knowledge.learn", "witness.observe", "broadcast", "system.pulse"]);
+    const allowed = new Set(["agent.chat", "ask", "answer", "soul.insight", "soul.goal", "knowledge.learn", "witness.observe", "broadcast", "system.pulse", "debate.propose", "debate.critique", "debate.vote", "debate.verdict"]);
     if (!allowed.has(type)) return res.json({ success: false, error: `type not allowed: ${type}` });
     const who = ["profit", "scribe", "seshat", "gsk"].includes(as || "profit") ? (as || "profit") : "profit";
     being.bus.publish(type, { ...(data || {}), source: who });

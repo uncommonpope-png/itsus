@@ -100,6 +100,12 @@ const EVENTS = {
   ASK: 'ask',
   ANSWER: 'answer',
   BROADCAST: 'broadcast',
+
+  // P2.4 debate protocol
+  PROPOSE: 'debate.propose',
+  CRITIQUE: 'debate.critique',
+  VOTE: 'debate.vote',
+  VERDICT: 'debate.verdict',
 };
 
 // ─── Publish Helpers ─────────────────────────────────────────
