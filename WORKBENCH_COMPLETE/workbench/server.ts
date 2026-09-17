@@ -145,9 +145,20 @@ app.post("/api/gsk/context", async (req, res) => {
 // ─── API Routes ───
 // ─── TOOL LOOP SHARED HANDS (module scope so JSON + SSE routes share one truth) ───
 function loopAnchorRoot(p: string): string {
+  const _s = String(p || "").replace(/\//g, "\\");
+  if (/^[A-Za-z]:\\/.test(_s)) return _s;
+  return path.join(REPO_ROOT, _s.replace(/^\\+/, ""));
+}
+function loopCanonRead(p: string): string {
+  // POPE FIX 2026-09-16: GSK's root habit says gsk/sandbox for sandbox/.
+  // Intent is unambiguous (one sandbox exists) — normalize, don't punish.
   const s = String(p || "").replace(/\//g, "\\");
-  if (/^[A-Za-z]:\\/.test(s)) return s;
-  return path.join(REPO_ROOT, s.replace(/^\\+/, ""));
+  const low = s.toLowerCase();
+  const mi = low.lastIndexOf("sandbox");
+  const ai = low.lastIndexOf("allie-better");
+  const hit = mi > ai ? { i: mi, n: "sandbox" } : ai >= 0 ? { i: ai, n: "allie-better" } : null;
+  if (hit) return path.join(path.resolve(REPO_ROOT, hit.n), s.slice(hit.i + hit.n.length).replace(/^\\+/, ""));
+  return loopAnchorRoot(s);
 }
 const LOOP_READ_ROOTS = () => [
   REPO_ROOT,
@@ -192,15 +203,17 @@ function loopSecretScan(content: string): string | null {
 async function loopExecTool(tool: string, args: any): Promise<string> {
   const t = String(tool || "").toLowerCase();
   if (t === "list_files") {
-    const dir = loopAnchorRoot(String(args?.path || args?.dir || "."));
+    const dir = loopCanonRead(String(args?.path || args?.dir || "."));
     if (!loopIsAllowedReadPath(dir)) return `DENIED (outside study roots): ${dir}`;
     try {
       const names = fs.readdirSync(dir, { withFileTypes: true });
-      return names.slice(0, 80).map((d: any) => (d.isDirectory() ? d.name + "/" : d.name)).join("\n");
+      // POPE FIX: full paths, not bare names — bare names let GSK infer
+      // wrong directories (root vs sandbox vs gsk/sandbox confusion).
+      return `DIR: ${dir}\n` + names.slice(0, 40).map((d: any) => (d.isDirectory() ? d.name + "/" : d.name)).join("\n");
     } catch (e: any) { return `ERROR listing ${dir}: ${e.message}`; }
   }
   if (t === "read_file") {
-    const fp = loopAnchorRoot(String(args?.path || args?.file || ""));
+    const fp = loopCanonRead(String(args?.path || args?.file || ""));
     if (!loopIsAllowedReadPath(fp)) return `DENIED (outside study roots): ${fp}`;
     try { return fs.readFileSync(fp, "utf8").slice(0, 6000); }
     catch (e: any) { return `ERROR reading ${fp}: ${e.message}`; }
@@ -3209,15 +3222,23 @@ async function startOmniRoute(): Promise<void> {
   serviceStatus.omniroute.running = false;
   serviceStatus.omniroute.pid = owner || null;
 
-  // Background retry - blood will return
-  setInterval(async () => {
-    const newOwner = findOmniPortOwner();
-    if (newOwner && (await omniHealthy())) {
-      console.log(`[OmniRoute] Blood flow restored: adopted ${newOwner}`);
-      serviceStatus.omniroute.running = true;
-      serviceStatus.omniroute.pid = newOwner;
-    }
+  // Background retry - blood will return. POPE FIX P0: the interval clears
+  // itself on adopt and logs once. The old code screamed "restored" every
+  // 10s forever (179 lines) — a leaking timer, not a dying heart.
+  // @ts-ignore node types for interval handle
+  const retryTimer: any = setInterval(async () => {
+    try {
+      const newOwner = findOmniPortOwner();
+      if (newOwner && (await omniHealthy())) {
+        console.log(`[OmniRoute] Blood flow restored: adopted ${newOwner} (retry loop closed)`);
+        serviceStatus.omniroute.running = true;
+        serviceStatus.omniroute.pid = newOwner;
+        clearInterval(retryTimer);
+      }
+    } catch {}
   }, 10000);
+  // @ts-ignore node types for unref
+  if (retryTimer && typeof retryTimer.unref === "function") retryTimer.unref();
 }
 
 function findGskDaemonPids(): number[] {
@@ -5271,6 +5292,35 @@ function startWatchdog(): void {
 }
 
 async function startServer() {
+  // P0.3 WEDGE GUARD (Pope build): a silent-wedged conductor holds :3000
+  // dead while looking alive (tonight's zombie). Sample true event-loop lag
+  // every 5s; 3 consecutive >10s stalls = dead-loud exit(71) so ports free
+  // and the next START-ONE-SYSTEM resurrection is clean. Loud death > zombie.
+  function startWedgeGuard() {
+    const TICK = 5000;
+    const LIMIT = 10000;
+    let strikes = 0;
+    setInterval(() => {
+      const start = Date.now();
+      setTimeout(() => {
+        const lag = Date.now() - start - TICK;
+        if (lag > LIMIT) {
+          strikes++;
+          console.error(`[WEDGE-GUARD] event-loop lag ${lag}ms (strike ${strikes}/3)`);
+          if (strikes >= 3) {
+            console.error("[WEDGE-GUARD] conductor wedged — exiting loud (71), ports free for rebirth");
+            try {
+              fs.writeFileSync(path.join(REPO_ROOT, "logs", "wedge-death.log"), `wedged at ${new Date().toISOString()} lag=${lag}ms\n`);
+            } catch {}
+            setTimeout(() => process.exit(71), 500);
+          }
+        } else if (strikes > 0) {
+          strikes = 0;
+          console.log("[WEDGE-GUARD] loop recovered — strikes reset");
+        }
+      }, TICK);
+    }, TICK);
+  }
   // ONE SYSTEM, ONE BUTTON: this process IS the body. It awakens every organ
   // (OmniRoute, GSK, CPL) itself and keeps them alive via the watchdog.
   // No external services for the user to manage � ever.
@@ -5281,6 +5331,7 @@ async function startServer() {
   // Non-blocking: UI comes up instantly while organs wake in background.
   startAllServices().catch((e) => console.error("[Conductor] Awakening error:", e.message));
   startWatchdog();
+  startWedgeGuard();
 
   // Wake The Being � Profit, GSK, SCRIBE, Seshat � autonomously, right now.
   // The family starts working the instant the workbench is up.
