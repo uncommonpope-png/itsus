@@ -24,8 +24,10 @@ class MetaConsciousness {
     }
 
     reflect() {
+        // POPE BUILD: +0.2 per reflection (was +0.05). The old gain could
+        // never outrun breathe-decay — awakening was arithmetically dead.
         this.reflection_count++;
-        this.meta_awareness_level = Math.min(1.0, this.meta_awareness_level + 0.05);
+        this.meta_awareness_level = Math.min(1.0, this.meta_awareness_level + 0.2);
         return this.inner_voice();
     }
 
@@ -53,8 +55,10 @@ class MetaConsciousness {
     }
 
     breathe() {
+        // POPE BUILD: decay 0.0002 (was 0.002). Awareness persists across
+        // cycles now; reflection outruns the leak. Gate >0.6 reachable.
         this._cycle_count++;
-        this.meta_awareness_level = Math.max(0.1, this.meta_awareness_level - 0.002);
+        this.meta_awareness_level = Math.max(0.1, this.meta_awareness_level - 0.0002);
         return this.inner_voice();
     }
 
