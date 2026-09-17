@@ -208,7 +208,9 @@ class MegaMemory {
             if (entry.weight < weight_min || entry.weight > weight_max) continue;
 
             if (tags.length > 0) {
-                const hasAllTags = (entry.tags || []).every(t => (entry.tags || []).includes(t));
+                // POPE FIX P3: compared entry tags to THEMSELVES (always true),
+                // corrupting version chains. Compare QUERY tags to entry tags.
+                const hasAllTags = tags.every(t => (entry.tags || []).includes(t));
                 if (!hasAllTags) continue;
             }
 

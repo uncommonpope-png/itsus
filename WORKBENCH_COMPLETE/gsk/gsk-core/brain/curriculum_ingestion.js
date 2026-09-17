@@ -86,7 +86,11 @@ class CurriculumIngestion {
      */
     async refreshCurriculum(fetchProvider) {
         const now = Date.now();
-        if (now - this.lastFetch < this.fetchInterval && this._loadCurriculum()) {
+        // P3.4: an empty-modules cache is POISON, not fresh — a failed parse
+        // once cached itself for 7 days. Re-fetch regardless of age.
+        const cached = this._loadCurriculum();
+        const cachedCount = cached && cached.nav ? this._countTopics(cached.nav) : 0;
+        if (now - this.lastFetch < this.fetchInterval && cachedCount > 0) {
             return { status: 'cached', age_ms: now - this.lastFetch };
         }
 
@@ -97,6 +101,7 @@ class CurriculumIngestion {
                     const fbResult = await fetchProvider(this.navUrl);
                     if (fbResult?.ok && fbResult.text) {
                         const nav = this._parseMkdocsNav(fbResult.text);
+                        if (this._countTopics(nav) === 0) return { status: 'error', error: 'empty_parse_no_cache_write' };
                         const curriculum = {
                             source: 'cs-self-learning',
                             url: 'https://github.com/PKUFlyingPig/cs-self-learning',
@@ -114,6 +119,7 @@ class CurriculumIngestion {
             }
 
             const nav = this._parseMkdocsNav(result.text);
+            if (this._countTopics(nav) === 0) return { status: 'error', error: 'empty_parse_no_cache_write' };
             const curriculum = {
                 source: 'cs-self-learning',
                 url: 'https://github.com/PKUFlyingPig/cs-self-learning',
@@ -185,6 +191,36 @@ class CurriculumIngestion {
                     currentSubmodule = null;
                 } else if (currentModule) {
                     currentModule.courses.push(course);
+                }
+            }
+        }
+
+        // P3.4 FALLBACK: cs-self-learning ships i18n nav_translations with CJK
+        // keys — the strict shape above yields 0 courses on it. Sweep every
+        // `- Name: path.md` line grouped under its nearest header instead.
+        let total = 0;
+        for (const mod of nav.modules) {
+            total += mod.courses.length;
+            for (const sub of mod.submodules) total += sub.courses.length;
+        }
+        if (total === 0) {
+            let bucket = null;
+            for (const rawLine of lines) {
+                const trimmed = rawLine.trim();
+                if (!trimmed || trimmed.startsWith('#')) continue;
+                const head = trimmed.match(/^-\s+(.+?):$/);
+                if (head && !/\.md/i.test(head[1])) {
+                    bucket = { name: head[1].replace(/^["']|["']$/g, '').trim().substring(0, 80) || 'CS', courses: [], submodules: [] };
+                    nav.modules.push(bucket);
+                    continue;
+                }
+                const course = trimmed.match(/^-\s+["']?(.+?)["']?\s*:\s*["']?(.+?\.md)["']?$/i);
+                if (course) {
+                    if (!bucket) {
+                        bucket = { name: 'CS Self-Learning', courses: [], submodules: [] };
+                        nav.modules.push(bucket);
+                    }
+                    bucket.courses.push({ name: course[1].trim(), path: course[2].trim() });
                 }
             }
         }

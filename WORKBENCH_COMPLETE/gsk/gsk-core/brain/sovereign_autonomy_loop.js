@@ -176,6 +176,11 @@ const goal = goalEngine.create(finalTitle, observation.source || 'autonomy_loop'
     }
 
     _journal(result) {
+        // P3.2 EVENT-ONLY (Pope build): stale observations, approval pauses
+        // and raw exceptions write NOTHING. Journals record verified outcomes
+        // or nothing at all — signal, not liturgy.
+        const ALLOWED = new Set(['completed', 'failed_verification']);
+        if (!result || !ALLOWED.has(result.status)) return;
         const journal = this.kernel?.systems?.journalWriter || this.kernel?.journalWriter;
         if (!journal || typeof journal.write !== 'function') return;
         const goal = result.goal?.title || 'Autonomy cycle';
@@ -193,6 +198,8 @@ const goal = goalEngine.create(finalTitle, observation.source || 'autonomy_loop'
     }
 
     async _witness(result) {
+        const ALLOWED = new Set(['completed', 'failed_verification']);
+        if (!result || !ALLOWED.has(result.status)) return;
         const memory = this.kernel?.memory || this.kernel?.systems?.memory;
         if (!memory || typeof memory.witness !== 'function') return;
         await memory.witness({
