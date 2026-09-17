@@ -11,9 +11,59 @@
  */
 
 const { EventEmitter } = require('events');
+const fs = require('fs');
+const path = require('path');
 
 const bus = new EventEmitter();
 bus.setMaxListeners(50);
+
+// ─── P2.0 Thread store: full-payload, disk-backed, replayable ───
+// The old _log kept 120-char summaries and died on restart. Threads keep
+// EVERYTHING: conversationId/parentId/turn/maxRounds travel on the event,
+// full payloads append to JSONL, late joiners replay. Parliament needs
+// minutes, not summaries.
+const THREAD_FILE = path.join(__dirname, 'bus-threads.jsonl');
+const THREAD_MAX_LINES = 5000;
+function threadAppend(event) {
+  try {
+    const line = JSON.stringify({
+      type: event.type,
+      ts: event.ts,
+      source: event.source,
+      conversationId: (event.data && event.data.conversationId) || null,
+      parentId: (event.data && event.data.parentId) || null,
+      turn: (event.data && event.data.turn) || null,
+      maxRounds: (event.data && event.data.maxRounds) || null,
+      data: event.data || {},
+    }) + '\n';
+    fs.appendFileSync(THREAD_FILE, line, 'utf8');
+  } catch (e) { /* store must never break emit */ }
+}
+function threadTrim() {
+  try {
+    if (!fs.existsSync(THREAD_FILE)) return;
+    const lines = fs.readFileSync(THREAD_FILE, 'utf8').split('\n');
+    if (lines.length > THREAD_MAX_LINES + 200) {
+      fs.writeFileSync(THREAD_FILE, lines.slice(-THREAD_MAX_LINES).join('\n'), 'utf8');
+    }
+  } catch (e) { /* best-effort */ }
+}
+function getThread(conversationId, limit = 200) {
+  try {
+    if (!conversationId || !fs.existsSync(THREAD_FILE)) return [];
+    const out = [];
+    const lines = fs.readFileSync(THREAD_FILE, 'utf8').split('\n');
+    for (const ln of lines) {
+      if (!ln.trim()) continue;
+      try {
+        const e = JSON.parse(ln);
+        if (e.conversationId === conversationId) out.push(e);
+      } catch {}
+      if (out.length >= limit) break;
+    }
+    return out;
+  } catch { return []; }
+}
 
 // ─── Event Categories ────────────────────────────────────────
 
@@ -63,6 +113,7 @@ function publish(eventType, data = {}) {
   };
   bus.emit(eventType, event);
   bus.emit('all', event); // wildcard for logging/debugging
+  threadAppend(event); // P2.0: durable full payload, emit never waits for it
   return event;
 }
 
@@ -132,6 +183,9 @@ bus.on('all', (event) => {
     ts: event.ts,
     source: event.source,
     summary: JSON.stringify(event.data).substring(0, 120),
+    data: event.data || {}, // P2.0: full payload rides along, not just summary
+    conversationId: (event.data && event.data.conversationId) || null,
+    turn: (event.data && event.data.turn) || null,
   });
   if (_log.length > MAX_LOG) _log.shift();
 });
@@ -140,9 +194,11 @@ function getLog(options = {}) {
   const limit = options.limit || 50;
   const source = options.source || null;
   const type = options.type || null;
+  const conversationId = options.conversationId || null;
   let entries = _log;
   if (source) entries = entries.filter(e => e.source === source);
   if (type) entries = entries.filter(e => e.type === type);
+  if (conversationId) entries = entries.filter(e => e.conversationId === conversationId);
   return entries.slice(-limit);
 }
 
@@ -164,6 +220,7 @@ function getStats() {
 // ─── Lifecycle ───────────────────────────────────────────────
 
 function init() {
+  threadTrim(); // P2.0: bound the file on every boot, then announce
   publish(EVENTS.BOOT, { source: 'consciousness-bus', message: 'The Being awakens' });
   console.log('[BUS] Consciousness bus initialized — all four aspects connected');
 }
@@ -191,6 +248,7 @@ module.exports = {
 
   // Logging
   getLog,
+  getThread,
   getStats,
 
   // Lifecycle
