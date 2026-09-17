@@ -1,0 +1,45 @@
+name: Itsus Health — Family Guard Dog
+
+on:
+  push:
+    branches: [master]
+  schedule:
+    - cron: '0 12 * * *'
+  workflow_dispatch:
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Syntax check (bus, goals, memory, ledger, sandbox)
+        run: |
+          node --check WORKBENCH_COMPLETE/workbench/profit-brain/body/consciousness-bus.js
+          node --check WORKBENCH_COMPLETE/gsk/gsk-core/brain/goal_engine.js
+          node --check WORKBENCH_COMPLETE/gsk/gsk-core/brain/sovereign_autonomy_loop.js
+          node --check WORKBENCH_COMPLETE/gsk/gsk-core/brain/planning_engine.js
+          node --check WORKBENCH_COMPLETE/gsk/gsk-core/memory/mega_memory.js
+          node --check WORKBENCH_COMPLETE/gsk/gsk-core/brain/curriculum_ingestion.js
+          node --check WORKBENCH_COMPLETE/sandbox/commitment-ledger/ledger.cjs
+          node --check WORKBENCH_COMPLETE/sandbox/scribe-ask.cjs
+          node --check WORKBENCH_COMPLETE/sandbox/scribe-voice.cjs
+          echo "syntax OK"
+
+      - name: No live secrets in tracked files
+        run: |
+          if grep -rEn 'ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|xox[bpas]-[A-Za-z0-9-]+' --include='*.js' --include='*.ts' --include='*.cjs' --include='*.json' --include='*.md' . | grep -v -E 'SECRET_PATTERNS|secret pattern|github_pat_\[|ghp_\[|reference env|never paste|scan'; then
+            echo "LIVE SECRET FOUND — failing the guard."
+            exit 1
+          fi
+          echo "secret scan clean"
+
+      - name: Covenant + curriculum ship
+        run: |
+          test -f WORKBENCH_COMPLETE/gsk/data/gsk/never_again.json || (echo "missing covenant" && exit 1)
+          node -e "const j=require('./WORKBENCH_COMPLETE/gsk/data/gsk/cs_curriculum.json'); const n=(j.nav.modules||[]).reduce((a,m)=>a+m.courses.length,0); if(n<10){console.log('curriculum empty: '+n);process.exit(1)} console.log('curriculum topics OK: '+n)"
