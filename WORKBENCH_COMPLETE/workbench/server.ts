@@ -4129,6 +4129,27 @@ async function getTheBeing(): Promise<any> {
     }
   }, "being:gsk-bus-router");
 
+  // P2.1 CONTINUATION: ANSWER events with continueTo + headroom re-enter as
+  // agent.chat turns. Bounded by maxRounds — multi-turn without infinite talk.
+  busMod.subscribe(busMod.EVENTS.ANSWER, (e: any) => {
+    try {
+      const d = e.data || {};
+      const next = typeof d.turn === "number" ? d.turn : null;
+      const max = typeof d.maxRounds === "number" ? d.maxRounds : null;
+      const to = d.continueTo || null;
+      if (!to || next === null || (max !== null && next > max)) return;
+      busMod.publish("agent.chat", {
+        from: d.from || "bus",
+        to,
+        message: `Continuing thread (turn ${next}): ${String(d.answer || "").slice(0, 1500)}`,
+        conversationId: d.conversationId || undefined,
+        turn: next,
+        maxRounds: max === null ? undefined : max,
+        source: "bus:continuation",
+      });
+    } catch {}
+  }, "being:answer-continuation");
+
   // One Tool Atlas, one PLT gate � every aspect shares every tool.
   await harnessMod.seed({ gsk: gskMod, scribe: scribeMod, seshat: seshatMod, bus: busMod });
   harnessMod.initBusBindings(busMod);

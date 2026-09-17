@@ -143,7 +143,7 @@ function subscribeOnce(eventType, handler, label) {
 const _pendingQueries = new Map();
 let _queryCounter = 0;
 
-function query(from, to, question, timeoutMs = 5000) {
+function query(from, to, question, timeoutMs = 5000, opts = {}) {
   return new Promise((resolve) => {
     const queryId = `q_${Date.now()}_${_queryCounter++}`;
     const timer = setTimeout(() => {
@@ -151,7 +151,13 @@ function query(from, to, question, timeoutMs = 5000) {
       resolve({ answer: null, timedOut: true, queryId });
     }, timeoutMs);
 
-    _pendingQueries.set(queryId, { resolve, timer, from, to });
+    _pendingQueries.set(queryId, {
+      resolve, timer, from, to,
+      conversationId: opts.conversationId || null,
+      turn: typeof opts.turn === 'number' ? opts.turn : null,
+      maxRounds: opts.maxRounds || null,
+      continueTo: opts.continueTo || null,
+    });
 
     publish(EVENTS.ASK, {
       queryId,
@@ -159,6 +165,9 @@ function query(from, to, question, timeoutMs = 5000) {
       to,
       question,
       source: from,
+      conversationId: opts.conversationId || null,
+      turn: typeof opts.turn === 'number' ? opts.turn : null,
+      maxRounds: opts.maxRounds || null,
     });
   });
 }
@@ -170,6 +179,19 @@ function answer(queryId, answerText, source) {
     _pendingQueries.delete(queryId);
     pending.resolve({ answer: answerText, timedOut: false, queryId });
   }
+  // P2.1: answers are EVENTS, not vanishing promises. Published so threads,
+  // judges, and continuations can react. Carries the query's thread keys.
+  publish(EVENTS.ANSWER, {
+    queryId,
+    answer: answerText,
+    source: source || (pending && pending.from) || 'unknown',
+    to: (pending && pending.from) || null,
+    from: (pending && pending.to) || null,
+    conversationId: (pending && pending.conversationId) || null,
+    turn: (pending && typeof pending.turn === 'number') ? pending.turn + 1 : null,
+    maxRounds: (pending && pending.maxRounds) || null,
+    continueTo: (pending && pending.continueTo) || null,
+  });
 }
 
 // ─── Logging ─────────────────────────────────────────────────
