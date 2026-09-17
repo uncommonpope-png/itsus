@@ -4103,6 +4103,42 @@ async function getTheBeing(): Promise<any> {
     } catch { /* ignore */ }
   }, "being:gsk-answer");
 
+  // P2.5 SESHAT SPEAKS: ASK routed to seshat answers from her own pages.
+  busMod.subscribe(busMod.EVENTS.ASK, async (e: any) => {
+    const d = e.data || {};
+    if (d.to !== "seshat") return;
+    if (!d.question) return;
+    try {
+      const hits = seshatMod.searchBrain ? seshatMod.searchBrain(String(d.question), { limit: 5 }) : [];
+      const lines = (hits || []).slice(0, 5).map((h: any, i: number) =>
+        `[${i + 1}] ${h.name || h.path} (score ${h.score}): ${String(h.context || h.preview || "").slice(0, 300)}`);
+      const answer = lines.length > 0
+        ? `Seshat remembers:\n${lines.join("\n")}`
+        : "Seshat holds nothing on that — her shelves are silent here.";
+      busMod.answer(d.queryId, answer, "seshat");
+    } catch { /* ignore */ }
+  }, "being:seshat-answer");
+
+  // P2.5 SCRIBE SPEAKS: ASK routed to scribe answers with cited memory ids.
+  busMod.subscribe(busMod.EVENTS.ASK, async (e: any) => {
+    const d = e.data || {};
+    if (d.to !== "scribe") return;
+    if (!d.question) return;
+    try {
+      let mems: any[] = [];
+      if (scribeMod.recall) {
+        const r = await scribeMod.recall(String(d.question), 5);
+        mems = Array.isArray(r) ? r : (r && (r as any).results) || [];
+      }
+      const lines = mems.slice(0, 5).map((m: any) =>
+        `[${m.id || m.memory_id || "?"}] ${String(m.content || m.summary || m.text || "").slice(0, 300)}`);
+      const answer = lines.length > 0
+        ? `Scribe witnessed:\n${lines.join("\n")}`
+        : "Scribe witnessed nothing on that — the record is empty, and I will not invent.";
+      busMod.answer(d.queryId, answer, "scribe");
+    } catch { /* ignore */ }
+  }, "being:scribe-answer");
+
   // -- PHASE: PROFIT ? GSK ROUTING � When PROFIT speaks to GSK on the bus,
   // GSK actually hears it and responds. --
   busMod.subscribe("agent.chat", async (e: any) => {
@@ -4249,6 +4285,46 @@ async function getTheBeing(): Promise<any> {
       }
     } catch {}
   }, "being:debate-judge");
+
+  // P2.6 TASK LIFECYCLE on-bus: assign → (progress)* → completed|rejected.
+  // Validation is structural (goal + expectedOutput + known assignee);
+  // Scribe witnesses assignment + completion. Workers publish progress.
+  const TASK_ASSIGNEES = ["profit", "gsk", "scribe", "seshat"];
+  busMod.subscribe("task.assign", (e: any) => {
+    try {
+      const d = e.data || {};
+      const goal = String(d.goal || "").trim();
+      const expectedOutput = String(d.expectedOutput || d.expected_output || "").trim();
+      const assignee = String(d.assignee || "");
+      const problems: string[] = [];
+      if (!goal) problems.push("goal required");
+      if (!expectedOutput) problems.push("expectedOutput required");
+      if (!TASK_ASSIGNEES.includes(assignee)) problems.push(`assignee must be one of ${TASK_ASSIGNEES.join(",")}`);
+      const id = String(d.id || `task_${Date.now()}`);
+      if (problems.length > 0) {
+        busMod.publish("task.rejected", { id, problems, source: "bus:task-gate", conversationId: d.conversationId });
+        return;
+      }
+      const task = {
+        id, goal: goal.slice(0, 1000), expectedOutput: expectedOutput.slice(0, 1000),
+        assignee, chain: Array.isArray(d.chain) ? [...d.chain, assignee] : [assignee],
+        conversationId: d.conversationId, source: d.from || d.source || "bus",
+      };
+      busMod.publish("task.assigned", task);
+      try {
+        scribeMod.record({ type: "task", summary: `Task ${id} → ${assignee}: ${goal.slice(0, 200)}`, tags: ["task", "assigned"], weight: 0.7 });
+      } catch {}
+    } catch {}
+  }, "being:task-gate");
+  busMod.subscribe("task.completed", (e: any) => {
+    try {
+      const d = e.data || {};
+      if (!d.id) return;
+      try {
+        scribeMod.record({ type: "task", summary: `Task ${d.id} completed by ${d.by || d.source || "?"}: ${String(d.result || "").slice(0, 200)}`, tags: ["task", "completed"], weight: 0.85 });
+      } catch {}
+    } catch {}
+  }, "being:task-witness");
 
   // One Tool Atlas, one PLT gate � every aspect shares every tool.
   await harnessMod.seed({ gsk: gskMod, scribe: scribeMod, seshat: seshatMod, bus: busMod });
@@ -4507,7 +4583,7 @@ app.post("/api/being/bus/publish", async (req, res) => {
     const being = await getTheBeing();
     const { type, data, as } = req.body || {};
     if (!type || typeof type !== "string") return res.json({ success: false, error: "type required" });
-    const allowed = new Set(["agent.chat", "ask", "answer", "soul.insight", "soul.goal", "knowledge.learn", "witness.observe", "broadcast", "system.pulse", "debate.propose", "debate.critique", "debate.vote", "debate.verdict"]);
+    const allowed = new Set(["agent.chat", "ask", "answer", "soul.insight", "soul.goal", "knowledge.learn", "witness.observe", "broadcast", "system.pulse", "debate.propose", "debate.critique", "debate.vote", "debate.verdict", "task.assign", "task.assigned", "task.progress", "task.completed", "task.rejected", "speaker.turn"]);
     if (!allowed.has(type)) return res.json({ success: false, error: `type not allowed: ${type}` });
     const who = ["profit", "scribe", "seshat", "gsk"].includes(as || "profit") ? (as || "profit") : "profit";
     being.bus.publish(type, { ...(data || {}), source: who });
