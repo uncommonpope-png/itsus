@@ -3390,13 +3390,13 @@ async function startGSK(): Promise<void> {
     GSK_AUTONOMY_ENABLED: "true", // POPE DECREE 2026-09-16: NO GATES. Daemon motor ON. Being-loop + daemon both build. Blood-flow hard denies (kill/secrets/force-git) stay — those are survival law, not gates.
     GSK_HITL_AUTO_APPROVE: "1", // POPE DECREE 2026-09-16: HITL human checkpoint removed entirely. Council PLT still scores every plan; no human waits.
     NINE_ROUTER_URL: OMNIROUTE_URL,
-    NINE_ROUTER_API_KEY: "oma_live_OPsWCEYKCLo_dOmyaUXM8B2DS5vP5-ZhJd08wpxYrvU",
+    NINE_ROUTER_API_KEY: "oma_live_xPEPbuQ6FznrEp7sL8_-7zPUI1vTa10utjpG49l4xps",
       MCP_API_KEY: GSK_MCP_KEY,
       CONDUCTOR_URL: `http://127.0.0.1:${PORT}`,
       SCRIBE_KEY: scribeKey(),
       GENESIS_TOKEN: process.env.GENESIS_TOKEN || "genesis-sovereign-2026",
-      GSK_MODEL: "auto/best-coding",
-    GSK_BRAIN_MODEL: "auto/best-coding",
+      GSK_MODEL: "gsk-brain",
+    GSK_BRAIN_MODEL: "gsk-brain",
   };
   gskProcess = spawn(process.execPath, ["gsk_daemon.js"], {
     cwd: gskPath,
