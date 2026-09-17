@@ -134,8 +134,9 @@ async function seed(refs = {}) {
       register('gsk', t.name, t.description, (a) => gskRef.executeTool(t.name, a), t.risk);
     }
   }
-  // Wildcard for GSK's full 346-tool arsenal
-  register('gsk', 'any', 'Execute ANY GSK tool by name. Args: {tool, args}', (a) => gskRef.executeTool(a.tool, a.args || {}), 'medium');
+  // Wildcard for GSK's full 346-tool arsenal. P4.4b: risk HIGH (not medium) —
+  // a bare name can smuggle run_command-equivalents past the name-only gate.
+  register('gsk', 'any', 'Execute ANY GSK tool by name. Args: {tool, args}', (a) => gskRef.executeTool(a.tool, a.args || {}), 'high');
 
   return registry.size;
 }
@@ -148,8 +149,11 @@ async function gateTool(def, opts = {}) {
   const risk = HIGH_RISK_TOOLS.has(def.name) ? 'high' : def.risk;
   const tax = RISK_TAX[risk];
 
-  // GSK already self-governs internally — trust his own stream
-  if (def.owner === 'gsk' && opts.actor === 'gsk') {
+  // P4.4b: GSK self-trust scoped to READ-ONLY. The old blanket bypass let any
+  // actor==='gsk' call run_command-equivalents with zero council. Writes and
+  // exec now face the same gate as everyone else.
+  const READ_ONLY_RISKS = new Set(['safe', 'low']);
+  if (def.owner === 'gsk' && opts.actor === 'gsk' && READ_ONLY_RISKS.has(def.risk) && !HIGH_RISK_TOOLS.has(def.name)) {
     return { allowed: true, risk, tax, stamp: PLT_STAMP, trusted: true };
   }
 

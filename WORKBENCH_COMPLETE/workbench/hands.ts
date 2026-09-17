@@ -163,6 +163,14 @@ export class Hands {
       return { ok: false, error: `projectRoot outside sanctioned roots: ${projectRoot}` };
     }
     const id = `hands_${Date.now()}_${++this.seq}`;
+    // P4.4c: scan task TEXT for blood violations before queueing. Prose can
+    // smuggle kill-orders, secret paths, and force-git that step tools miss.
+    const textGuard = this.guardCommand(task);
+    if (!textGuard.allowed) {
+      this._journal({ type: "task.blood_denied", task: task.slice(0, 300), reason: textGuard.reason });
+      this._emit("hands.task.denied", { task: task.slice(0, 200), reason: textGuard.reason });
+      return { ok: false, error: `blood_guard: ${textGuard.reason}` };
+    }
     this.queue.push({ id, input: { ...input, task }, projectRoot, mode, actor, ts: Date.now() });
     this._emit("hands.task.queued", { taskId: id, task: task.slice(0, 200), mode, projectRoot });
     this._journal({ type: "task.queued", taskId: id, task: task.slice(0, 300), mode, actor, projectRoot });
@@ -275,6 +283,26 @@ export class Hands {
       }
       const hitl = sys.hitlGate;
       if (hitl?.resolve) {
+        // P4.4c: guard the HITL fallback too — scan queued steps before a
+        // human approval can release them. Blood denies win over architects.
+        try {
+          const q = typeof hitl._readQueue === "function" ? hitl._readQueue() : [];
+          const entry = Array.isArray(q) ? q.find((r: any) => r?.id === id) : null;
+          const steps = entry?.steps;
+          if (Array.isArray(steps)) {
+            for (const s of steps) {
+              const g = this.guardTool(s?.tool || "shell_exec", s?.args || {});
+              if (!g.allowed) {
+                if (typeof hitl._resolve === "function") {
+                  try { hitl._resolve(id, "rejected", { reason: `blood_guard: ${g.reason}` }); } catch {}
+                }
+                this._journal({ type: "approval.hitl_blood_denied", approvalId: id, reason: g.reason });
+                this._emit("hands.approval.denied", { approvalId: id, reason: g.reason });
+                return { ok: false, error: `blood_guard: ${g.reason}` };
+              }
+            }
+          }
+        } catch {}
         hitl.resolve(id, "approved", { approvedBy: actor, via: "hands" });
         this._journal({ type: "approval.hitl_approved", approvalId: id, actor });
         this._emit("hands.approval.hitl_approved", { approvalId: id, actor });

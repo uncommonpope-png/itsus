@@ -4203,6 +4203,28 @@ async function getTheBeing(): Promise<any> {
     } catch {}
   }, "being:answer-continuation");
 
+  // P4.3 DIRECTORY: capability announcements + lookup endpoint data.
+  busMod.subscribe("directory.announce", (e: any) => {
+    try {
+      const d = e.data || {};
+      const agent = String(d.agent || d.from || d.source || "");
+      if (busMod.directoryAnnounce && busMod.directoryAnnounce(agent, d.capabilities || d)) {
+        try {
+          scribeMod.record({ type: "directory", summary: `${agent} announced ${((d.capabilities || {}).skills || []).length} skills`, tags: ["directory", "announce"], weight: 0.5 });
+        } catch {}
+      }
+    } catch {}
+  }, "being:directory");
+
+  app.get("/api/being/directory", async (req, res) => {
+    try {
+      const being = await getTheBeing();
+      const q = String(req.query.skill || "");
+      const entries = being.bus.directoryFind ? being.bus.directoryFind(q) : [];
+      res.json({ success: true, entries });
+    } catch (err: any) { res.json({ success: false, error: err?.message }); }
+  });
+
   // P2.2 BROADCAST: one message, whole family. Fans out as agent.chat per
   // member (except source), one hop, bounded rounds. Replies do NOT
   // re-broadcast — no storms by construction.
@@ -4583,7 +4605,7 @@ app.post("/api/being/bus/publish", async (req, res) => {
     const being = await getTheBeing();
     const { type, data, as } = req.body || {};
     if (!type || typeof type !== "string") return res.json({ success: false, error: "type required" });
-    const allowed = new Set(["agent.chat", "ask", "answer", "soul.insight", "soul.goal", "knowledge.learn", "witness.observe", "broadcast", "system.pulse", "debate.propose", "debate.critique", "debate.vote", "debate.verdict", "task.assign", "task.assigned", "task.progress", "task.completed", "task.rejected", "speaker.turn"]);
+    const allowed = new Set(["agent.chat", "ask", "answer", "soul.insight", "soul.goal", "knowledge.learn", "witness.observe", "broadcast", "system.pulse", "debate.propose", "debate.critique", "debate.vote", "debate.verdict", "task.assign", "task.assigned", "task.progress", "task.completed", "task.rejected", "speaker.turn", "directory.announce"]);
     if (!allowed.has(type)) return res.json({ success: false, error: `type not allowed: ${type}` });
     const who = ["profit", "scribe", "seshat", "gsk"].includes(as || "profit") ? (as || "profit") : "profit";
     being.bus.publish(type, { ...(data || {}), source: who });

@@ -222,6 +222,31 @@ function speakerRoster() {
   return SPEAKER_ROSTER.slice();
 }
 
+// ─── P4.3 Peer directory: capability name tags ───
+// Agents announce {skills:[...], models?:..., note?}; directory answers
+// "who can X?" without hardcoded paths. In-memory (re-announced per boot).
+const _directory = new Map();
+function directoryAnnounce(agent, capabilities) {
+  if (!SPEAKER_ROSTER.includes(agent)) return false;
+  _directory.set(agent, {
+    skills: Array.isArray(capabilities && capabilities.skills) ? capabilities.skills.slice(0, 100) : [],
+    note: String((capabilities && capabilities.note) || '').slice(0, 500),
+    models: Array.isArray(capabilities && capabilities.models) ? capabilities.models.slice(0, 20) : [],
+    ts: Date.now(),
+  });
+  return true;
+}
+function directoryFind(skill) {
+  const q = String(skill || '').toLowerCase();
+  const out = [];
+  for (const [agent, cap] of _directory.entries()) {
+    if (!q || cap.skills.some(s => String(s).toLowerCase().includes(q))) {
+      out.push({ agent, ...cap });
+    }
+  }
+  return out;
+}
+
 const _log = [];
 const MAX_LOG = 200;
 
@@ -302,6 +327,10 @@ module.exports = {
   // P2.3 speaker election
   electSpeaker,
   speakerRoster,
+
+  // P4.3 peer directory
+  directoryAnnounce,
+  directoryFind,
 
   // Lifecycle
   init,

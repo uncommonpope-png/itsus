@@ -1,9 +1,9 @@
 import { execSync, spawn } from 'node:child_process';
-import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync } from 'node:fs';
-import { join, relative, resolve, basename } from 'node:path';
+import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync, realpathSync, existsSync } from 'node:fs';
+import { join, relative, resolve, basename, dirname, sep, isAbsolute } from 'node:path';
 import { journalAppend } from './memory.js';
 
-const FORBIDDEN = /(\brm\s+-rf\b|rd\s+\/s\b|del\s+\/[sq]\b|format\s+[a-z]:|mkfs|:\(\)\{.*\};:|diskpart|cipher\s+\/w)/i;
+const FORBIDDEN = /(\brm\s+-rf\b|\brm\s+-rf?\s+[\/~]|rd\s+\/s\b|del\s+\/[sq]\b|rmdir\s+\/s\b|Remove-Item\b[^\n;]*-Recurse|format\s+[a-z]:|mkfs|:\(\)\{.*\};:|diskpart|cipher\s+\/w|takeown|icacls\s|reg\s+(delete|add)|Invoke-Expression|\bIEX\b|Start-Process\b|\$\(|`)/i;
 
 let workspace = process.cwd();
 
@@ -14,10 +14,22 @@ export const setWorkspace = (dir) => {
 export const getWorkspace = () => workspace;
 
 const safePath = (p) => {
-  const full = resolve(workspace, p);
-  const rel = relative(workspace, full);
-  if (rel.startsWith('..') || resolve(rel) === rel.replace(/^[\w.]:/, '')) {
-    if (rel.split('..').length > 1) throw new Error(`Path escapes the workshop: ${p}`);
+  // P4.4d: canonicalize (resolves .. AND symlinks) then contain. The old
+  // double-gated string check missed `..file` edges and symlink escapes.
+  const full = resolve(workspace, String(p || ''));
+  let real = full;
+  try {
+    real = realpathSync(full);
+  } catch {
+    // Target doesn't exist yet (writes): contain the parent instead.
+    try {
+      const parent = dirname(full);
+      if (existsSync(parent)) real = join(realpathSync(parent), basename(full));
+    } catch {}
+  }
+  const rel = relative(workspace, real);
+  if (rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)) {
+    throw new Error(`Path escapes the workshop: ${p}`);
   }
   return full;
 };

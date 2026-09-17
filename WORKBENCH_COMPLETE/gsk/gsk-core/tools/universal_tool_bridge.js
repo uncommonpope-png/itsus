@@ -814,9 +814,22 @@ class UniversalToolBridge {
             if (result.error) throw new Error(result.error);
             return result.stdout || '';
         }
-        console.warn('[ToolBridge] ⚠ _runCommand: SecureShellSandbox not loaded — running unsandboxed');
-        const { execSync } = require('child_process');
-        return execSync(cmd, { timeout: 30000, maxBuffer: 1024 * 1024, encoding: 'utf-8' });
+        console.warn('[ToolBridge] P4.2 isolated fallback (no shell string).');
+        const { spawnSync } = require('child_process');
+        const path = require('path');
+        const parts = String(cmd).trim().split(/\s+/);
+        const bin = parts.shift() || '';
+        if (!bin || /[;&|`$]/.test(cmd)) {
+          throw new Error('Isolated runner refuses chained commands — one binary, args only.');
+        }
+        const jail = path.resolve(process.env.GSK_PROJECT_ROOTS ? String(process.env.GSK_PROJECT_ROOTS).split(';')[0] : process.cwd());
+        const out = spawnSync(bin, parts.slice(0, 32), {
+          cwd: jail, timeout: 30000, maxBuffer: 64 * 1024, encoding: 'utf-8',
+          shell: false, windowsHide: true,
+        });
+        if (out.error) throw new Error(`Isolated run failed: ${out.error.message}`);
+        if (out.status !== 0) throw new Error(`exit ${out.status}: ${String(out.stderr || '').slice(0, 500)}`);
+        return String(out.stdout || '').slice(0, 4000);
     }
 
     // ── PHASE 4: SOVEREIGN SUPERVISOR — governed sibling-organ management. ──

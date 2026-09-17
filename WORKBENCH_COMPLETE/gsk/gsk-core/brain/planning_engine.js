@@ -263,6 +263,12 @@ Use only available tools. Never invent a tool. Prefer read/search/diagnose befor
         this.stats.plansExecuted++;
 
         const executeStep = async (step) => {
+            // P4.1 RESUME: never re-run a completed step. Crash reboots pick
+            // up where the checkpoint left off (LangGraph pending_writes rule).
+            if (step && step.status === 'completed') {
+                this._publish('plan.step.skipped', { planId: plan.id, stepId: step.id, reason: 'already_completed_checkpoint' });
+                return step;
+            }
             try {
                 if (this.executor && typeof this.executor.executeStep === 'function') {
                     const execution = await this.executor.executeStep(step, { plan, budget: options.budget || {} });
@@ -899,9 +905,12 @@ Use only available tools. Never invent a tool. Prefer read/search/diagnose befor
             for (const file of files) {
                 try {
                     const data = JSON.parse(fs.readFileSync(path.join(this.checkpointPath, file), 'utf8'));
-                    // Restore in-progress, paused, AND planned plans — dreams
-                    // must survive reboots so the Goal Runner can ship them.
-                    if (data && data.id && ['running', 'awaiting_approval', 'paused_budget', 'planned'].includes(data.status)) {
+                    // Restore in-progress, paused, planned AND created plans —
+                    // dreams must survive reboots so the Goal Runner can ship
+                    // them. (P4.1: created = planned-but-never-executed; the
+                    // 678 abandoned class ends here.)
+                    if (data && data.id && ['running', 'awaiting_approval', 'paused_budget', 'planned', 'created'].includes(data.status)) {
+                        if (data.status === 'created') data.status = 'planned';
                         this.plans.set(data.id, data);
                         restored++;
                     }

@@ -352,7 +352,16 @@ async function deliberate(topic) {
   if (!council) return { ok: false, error: 'Council unavailable' };
   try {
     const result = await council.deliberate(topic);
-    return { ok: true, source: 'gsk:council', result };
+    // P4.4d: normalize the verdict shape. Council returns a record
+    // {resolution, plt_outcome} with NO shouldProceed flag, so the harness
+    // gate (delib.result.shouldProceed===true) denied EVERYTHING forever.
+    const res = String((result && result.resolution) || '');
+    const plt = (result && result.plt_outcome) || {};
+    const p = typeof plt.profit === 'number' ? plt.profit : 0.5;
+    const l = typeof plt.love === 'number' ? plt.love : 0.5;
+    const t = typeof plt.tax === 'number' ? plt.tax : 0.3;
+    const shouldProceed = !/reject|veto|withhold|deny/i.test(res) && (p + l - t) > 0;
+    return { ok: true, source: 'gsk:council', result: { ...(result || {}), shouldProceed } };
   } catch (e) {
     return { ok: false, error: `Deliberation failed: ${e.message}` };
   }
@@ -411,16 +420,25 @@ function setHarness(h) {
 }
 
 async function executePlan({ goalId, goalTitle, steps, projectRoot, observation }) {
-  if (!harnessRef) return { success: false, error: 'Harness not wired' };
+  // P4.4a: DIRECT execution via fusion planningEngine. The old code called
+  // harness.useTool('gsk','execute_plan') which routes back here — infinite
+  // mutual recursion ending in stack exhaustion. Never round-trip.
   try {
-    const result = await harnessRef.useTool('gsk', 'execute_plan', {
-      goalId,
-      goalTitle,
-      steps,
-      projectRoot,
-      observation
-    });
-    return { success: true, result };
+    const sys = (typeof getSystems === 'function' && getSystems()) || {};
+    const planner = sys.planningEngine;
+    if (!planner || typeof planner.executePlan !== 'function') {
+      return { success: false, error: 'PlanningEngine unavailable' };
+    }
+    const plan = {
+      id: goalId || `plan_${Date.now()}`,
+      goal: goalTitle || 'harness plan',
+      steps: Array.isArray(steps) ? steps : [],
+      projectRoot: projectRoot || null,
+      observation: observation || null,
+      source: 'gsk-module.executePlan',
+    };
+    const execution = await planner.executePlan(plan, { source: 'gsk-module', projectRoot: plan.projectRoot });
+    return { success: !!(execution && execution.status !== 'failed'), execution };
   } catch (e) {
     return { success: false, error: e.message };
   }
