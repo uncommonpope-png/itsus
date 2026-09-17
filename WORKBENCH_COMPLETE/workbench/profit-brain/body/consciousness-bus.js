@@ -194,7 +194,27 @@ function answer(queryId, answerText, source) {
   });
 }
 
-// ─── Logging ─────────────────────────────────────────────────
+// ─── P2.3 Speaker election: deterministic round-robin roster ───
+// AG2 cost lesson: never LLM-select by default. Rotation is free;
+// LLM-judge reserved for genuine ambiguity (not yet wired = not used).
+const SPEAKER_ROSTER = ['profit', 'gsk', 'scribe', 'seshat'];
+let _speakerCursor = 0;
+function electSpeaker(lastSpeaker, candidates) {
+  const pool = Array.isArray(candidates) && candidates.length > 0
+    ? candidates.filter(s => SPEAKER_ROSTER.includes(s))
+    : SPEAKER_ROSTER.slice();
+  if (pool.length === 0) return 'gsk';
+  if (pool.length === 1) return pool[0];
+  let idx = pool.indexOf(lastSpeaker);
+  if (idx < 0) {
+    _speakerCursor = (_speakerCursor + 1) % pool.length;
+    return pool[_speakerCursor];
+  }
+  return pool[(idx + 1) % pool.length];
+}
+function speakerRoster() {
+  return SPEAKER_ROSTER.slice();
+}
 
 const _log = [];
 const MAX_LOG = 200;
@@ -272,6 +292,10 @@ module.exports = {
   getLog,
   getThread,
   getStats,
+
+  // P2.3 speaker election
+  electSpeaker,
+  speakerRoster,
 
   // Lifecycle
   init,

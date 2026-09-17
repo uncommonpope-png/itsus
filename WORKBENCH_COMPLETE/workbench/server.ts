@@ -4111,6 +4111,23 @@ async function getTheBeing(): Promise<any> {
     const from = d.from || "profit";
     const message = d.message || "";
     if (!message) return;
+    // P2.3 ELECTION: "family" no longer means GSK-always. Elect the next
+    // speaker (deterministic rotation, source excluded). GSK speaks inline;
+    // other winners get a witnessed turn event (their voices arrive in P2.5).
+    if (to === "family") {
+      try {
+        const roster = (busMod.speakerRoster && busMod.speakerRoster()) || ["profit", "gsk", "scribe", "seshat"];
+        const next = busMod.electSpeaker ? busMod.electSpeaker(from, roster.filter((s: string) => s !== from)) : "gsk";
+        busMod.publish("speaker.turn", {
+          speaker: next, from, message: String(message).substring(0, 500),
+          conversationId: d.conversationId || undefined,
+          turn: typeof d.turn === "number" ? d.turn + 1 : 1,
+          source: "bus:election",
+        });
+        console.log(`[BUS] elected ${next} for family turn`);
+        if (next !== "gsk") return;
+      } catch {}
+    }
     // Route to GSK if addressed to gsk, family, or all
     if (to && to !== "gsk" && to !== "family" && to !== "all") return;
     try {
