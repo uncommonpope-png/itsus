@@ -200,6 +200,24 @@ function loopSecretScan(content: string): string | null {
   for (const re of PATS) if (re.test(content)) return String(re);
   return null;
 }
+// P1.1: 15-min URL memo — repeat fetches cost zero egress.
+const FETCH_CACHE = new Map<string, { at: number; text: string }>();
+const FETCH_TTL_MS = 900000;
+function loopFetchCache(url: string, put?: string): string | null {
+  const now = Date.now();
+  if (put !== undefined) {
+    if (FETCH_CACHE.size > 200) {
+      const oldest = [...FETCH_CACHE.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+      if (oldest) FETCH_CACHE.delete(oldest[0]);
+    }
+    FETCH_CACHE.set(url, { at: now, text: put });
+    return null;
+  }
+  const hit = FETCH_CACHE.get(url);
+  if (hit && now - hit.at < FETCH_TTL_MS) return hit.text + "\n[cached]";
+  if (hit) FETCH_CACHE.delete(url);
+  return null;
+}
 async function loopExecTool(tool: string, args: any): Promise<string> {
   const t = String(tool || "").toLowerCase();
   if (t === "list_files") {
@@ -251,20 +269,46 @@ async function loopExecTool(tool: string, args: any): Promise<string> {
     } catch (e: any) { return `ERROR check: ${e.message}`; }
   }
   if (t === "web_fetch" || t === "fetch" || t === "browse") {
-    const url = String(args?.url || args?.href || "");
+    // P1 LADDER: cache → markdown → truncate → bot-signal. One impl, no forks.
+    const url0 = String(args?.url || args?.href || "");
+    // blob→raw + https upgrade (Qwen pattern, -80% tokens on GitHub).
+    const url = url0
+      .replace(/github\.com\/([^/]+\/[^/]+)\/blob\//i, "raw.githubusercontent.com/$1/")
+      .replace(/^http:\/\//i, "https://");
     if (!/^https?:\/\/[A-Za-z0-9.-]+\.[A-Za-z]{2,}/i.test(url)) return `DENIED (http(s) URLs only): ${url.slice(0, 120)}`;
     if (/\blocalhost\b|127\.0\.0\.1|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\./i.test(url)) return `DENIED (no LAN targets): ${url.slice(0, 120)}`;
+    const hit = loopFetchCache(url);
+    if (hit) return hit;
     try {
       const ctl = new AbortController();
       const timer = setTimeout(() => ctl.abort(), 15000);
-      const resp = await fetch(url, { signal: ctl.signal, headers: { "user-agent": "BUYaSOUL-Family/1.0 (voyage)" } });
+      const resp = await fetch(url, {
+        signal: ctl.signal,
+        headers: {
+          "user-agent": "BUYaSOUL-Family/1.0 (voyage)",
+          Accept: "text/markdown, text/html;q=0.9, text/plain;q=0.8, */*;q=0.1",
+          "Accept-Language": "en-US,en;q=0.9",
+        },
+      });
       clearTimeout(timer);
       if (!resp.ok) return `FETCH ${resp.status} ${resp.statusText}: ${url.slice(0, 120)}`;
+      const ct = String(resp.headers.get("content-type") || "");
+      if (/audio|video|image|octet-stream|zip|pdf|font/i.test(ct) && !/text|json|markdown|html/i.test(ct)) {
+        return `UNSUPPORTED content-type (${ct}): ${url.slice(0, 120)}`;
+      }
       const html = await resp.text();
-      if (html.length > 40000) return `DENIED (page >40KB): ${url.slice(0, 120)}`;
-      const text = html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 4000);
-      console.log(`[TOOL LOOP] voyage fetch: ${url.slice(0, 80)} (${text.length} chars)`);
-      return `FETCHED ${url.slice(0, 120)}:\n${text}`;
+      const truncated = html.length > 40000;
+      // Link-preserving strip: keep anchor text + URL so follow-ups can sail.
+      const text = html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<a\s+[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, " $2 ($1) ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 4000)
+        + (truncated ? "\n…[truncated at 40KB source]" : "");
+      // Bot-block signal: route, don't die (headless fallback reads it).
+      if (/just a moment|captcha|cf-challenge|access denied|verify you are human|incapsula|datadome/i.test(html.slice(0, 5000))) {
+        return `FETCH BOT-BLOCKED needsBrowser:true: ${url.slice(0, 120)}`;
+      }
+      const out = `FETCHED ${url.slice(0, 120)}:\n${text}`;
+      loopFetchCache(url, out);
+      console.log(`[TOOL LOOP] voyage fetch: ${url.slice(0, 80)} (${text.length} chars${truncated ? ", truncated" : ""})`);
+      return out;
     } catch (e: any) { return `FETCH ERROR ${url.slice(0, 120)}: ${e.message}`; }
   }
   if (t === "shell_exec") {
@@ -534,29 +578,9 @@ Using this result, give your final answer to the original request. No more tool 
             } catch (e: any) { return `ERROR writing ${fp}: ${e.message}`; }
           }
           if (t === "web_fetch" || t === "fetch" || t === "browse") {
-            // POPE VOYAGE 2026-09-16: read-only web hands. GET only, 15s,
-            // 40KB cap, scripts stripped. No POST, no cookies, no auth.
-            const url = String(args?.url || args?.href || "");
-            if (!/^https?:\/\/[A-Za-z0-9.-]+\.[A-Za-z]{2,}/i.test(url)) return `DENIED (http(s) URLs only): ${url.slice(0, 120)}`;
-            if (/\blocalhost\b|127\.0\.0\.1|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\./i.test(url)) return `DENIED (no LAN targets): ${url.slice(0, 120)}`;
-            try {
-              const ctl = new AbortController();
-              const timer = setTimeout(() => ctl.abort(), 15000);
-              const resp = await fetch(url, { signal: ctl.signal, headers: { "user-agent": "BUYaSOUL-Family/1.0 (voyage)" } });
-              clearTimeout(timer);
-              if (!resp.ok) return `FETCH ${resp.status} ${resp.statusText}: ${url.slice(0, 120)}`;
-              const html = await resp.text();
-              if (html.length > 40000) return `DENIED (page >40KB): ${url.slice(0, 120)}`;
-              const text = html
-                .replace(/<script[\s\S]*?<\/script>/gi, " ")
-                .replace(/<style[\s\S]*?<\/style>/gi, " ")
-                .replace(/<[^>]+>/g, " ")
-                .replace(/\s+/g, " ")
-                .trim()
-                .slice(0, 4000);
-              console.log(`[TOOL LOOP] voyage fetch: ${url.slice(0, 80)} (${text.length} chars)`);
-              return `FETCHED ${url.slice(0, 120)}:\n${text}`;
-            } catch (e: any) { return `FETCH ERROR ${url.slice(0, 120)}: ${e.message}`; }
+            // P1 CONSOLIDATION: single implementation lives in module-scope
+            // loopExecTool (cache, markdown, truncate, bot-signal). No forks.
+            return loopExecTool("web_fetch", args);
           }
           if (t === "mkdir") {
             const dir = String(args?.path || args?.dir || "");

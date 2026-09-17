@@ -447,20 +447,34 @@ class AutonomousLearning {
     
     async processLearningQueue() {
         if (this.learningQueue.length === 0) return { processed: 0 };
-        
-        const processed = [];
+
+        // P1.5: priority order + pool-of-3 + URL dedupe. The old sequential
+        // loop starved (1 topic/cycle, repeats re-fetched, priority ignored).
+        this.learningQueue.sort((a, b) => ((b && b.priority) || 0) - ((a && a.priority) || 0));
+        if (!this._seenUrls) this._seenUrls = new Set();
         const maxProcess = Math.min(this.maxLearnsPerCycle, this.learningQueue.length);
-        
+        const batch = [];
         for (let i = 0; i < maxProcess; i++) {
             const item = this.learningQueue.shift();
-            
-            if (item.type === 'concept') {
-                const result = await this.learnFromWeb(item.topic);
-                processed.push(result);
-            }
+            if (item && item.type === 'concept') batch.push(item);
         }
-        
-        return { processed: processed.length, results: processed };
+
+        const runOne = async (item) => {
+            try {
+                return await this.learnFromWeb(item.topic);
+            } catch (e) {
+                return { status: 'error', topic: item.topic, error: e.message };
+            }
+        };
+        // Pool of 3 concurrent, bounded by batch size.
+        const results = [];
+        for (let i = 0; i < batch.length; i += 3) {
+            const chunk = batch.slice(i, i + 3);
+            const out = await Promise.all(chunk.map(runOne));
+            results.push(...out);
+        }
+
+        return { processed: results.length, results };
     }
     
     async continuousLearn() {
@@ -514,10 +528,12 @@ class AutonomousLearning {
             'knowledge graph construction', 'self improving AI systems', 'AI safety alignment',
         ];
 
-        // Mix: 40% curriculum, 40% agent topics, 20% fallback
-        const curriculumCount = Math.floor(this.maxTopicsPerCycle * 0.4);
-        const agentCount = Math.floor(this.maxTopicsPerCycle * 0.4);
-        const fallbackCount = this.maxTopicsPerCycle - curriculumCount - agentCount;
+        // Mix: 40% curriculum, 40% agent topics, 20% fallback.
+        // P1.5: ceil (not floor) so the default maxTopicsPerCycle=1 still
+        // rotates curriculum instead of starving it to zero forever.
+        const curriculumCount = Math.max(1, Math.ceil(this.maxTopicsPerCycle * 0.4));
+        const agentCount = Math.max(1, Math.ceil(this.maxTopicsPerCycle * 0.4));
+        const fallbackCount = Math.max(0, this.maxTopicsPerCycle - curriculumCount - agentCount);
 
         const selected = [];
         const shuffledCurriculum = allTopics.sort(() => Math.random() - 0.5);
