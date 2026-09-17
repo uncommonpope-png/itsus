@@ -331,7 +331,15 @@ class MegaMemory {
         const removed = [];
 
         for (const entry of ledger) {
-            if (entry.weight >= threshold) {
+            // P5.4 INALIENABLE CORE: identity-bearing memories are never
+            // pruned — core/neverForget tags or identity/soul types survive
+            // any threshold. Grocery lists go; the self stays.
+            const tags = entry.tags || [];
+            const inalienable = entry.neverForget === true ||
+                tags.includes('core') || tags.includes('neverForget') ||
+                tags.includes('never_forget') ||
+                entry.type === 'identity' || entry.type === 'soul_genesis';
+            if (inalienable || entry.weight >= threshold) {
                 kept.push(entry);
             } else {
                 removed.push(entry);

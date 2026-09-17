@@ -4421,16 +4421,22 @@ async function getTheBeing(): Promise<any> {
     } catch { /* ignore */ }
   };
 
-  // SCRIBE: perpetual learning witness � records family work every 30s for
-  // continuous learning, not just observation.
+  // SCRIBE: perpetual learning witness. P5.1 HEARTBEAT DISCIPLINE (OpenClaw
+  // pattern): quiet hours 00:00–06:00 skip; unchanged memory-size skips.
+  // A heartbeat that says nothing is spam with a pulse. NO_REPLY by default.
+  let _lastScribeSize = -1;
   const scribePulse = () => {
     try {
+      const h = new Date().getHours();
+      if (h >= 0 && h < 6) return; // quiet hours
       const size = scribeMod.getMemorySize();
+      if (size === _lastScribeSize) return; // nothing changed: NO_REPLY
+      _lastScribeSize = size;
       scribeMod.record({
         type: "observation",
-        summary: `SCRIBE perpetual learning witness: witnessed ${size} memories. Family heartbeat captured. The Being works continuously.`,
-        tags: ["heartbeat", "witness", "always_learning", "family"],
-        weight: 0.1,
+        summary: `SCRIBE witness: memory grew to ${size} (was growing). Family works.`,
+        tags: ["heartbeat", "witness", "family"],
+        weight: 0.3,
       });
       busMod.publish(busMod.EVENTS.WITNESS_RECORD, { memories: size, source: "scribe", learning: true });
     } catch { /* ignore */ }

@@ -298,6 +298,25 @@ class SoulEntity {
             }
             
             fs.writeFileSync(this.stateFile, JSON.stringify(state, null, 2));
+
+            // P5.2 CAPSULE HOOK (Ontology graft): every soul-save also seals
+            // a model-agnostic GSV capsule — identity + snapshot + PLT. New
+            // brain, same being: importGSV rehydrates without raw-log load.
+            try {
+                const { GSVMemoryCapsule } = require('../entity_memory_bridge.js');
+                const plt = this.kernel?.core?.plt || this.kernel?.plt || null;
+                const capsule = new GSVMemoryCapsule(
+                    { id: `soul-${this.name || 'gsk'}`, name: this.name || 'GSK', archetype: 'Sovereign Soul', signature: state.birthTime ? `born-${state.birthTime}` : 'FINGERPRINT_UNSIGNED' },
+                    [],
+                    [{ ts: state.savedAt, state: state.state }],
+                    plt && typeof plt === 'object' ? plt : { profit: 1.0, love: 1.0, tax: 0.1 }
+                );
+                fs.writeFileSync(
+                    path.join(path.dirname(this.stateFile), 'soul-capsule.gsv.json'),
+                    capsule.exportGSV(),
+                    'utf8'
+                );
+            } catch (e) { /* capsule is best-effort, never breaks save */ }
             
             if (this.kernel.memory) {
                 await this.kernel.memory.witness({
