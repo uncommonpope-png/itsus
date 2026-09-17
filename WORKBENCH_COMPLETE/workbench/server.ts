@@ -4150,6 +4150,38 @@ async function getTheBeing(): Promise<any> {
     } catch {}
   }, "being:answer-continuation");
 
+  // P2.2 BROADCAST: one message, whole family. Fans out as agent.chat per
+  // member (except source), one hop, bounded rounds. Replies do NOT
+  // re-broadcast — no storms by construction.
+  const FAMILY_ROSTER = ["profit", "gsk", "scribe", "seshat"];
+  busMod.subscribe(busMod.EVENTS.BROADCAST, (e: any) => {
+    try {
+      const d = e.data || {};
+      const message = String(d.message || "");
+      if (!message) return;
+      const turn = typeof d.turn === "number" ? d.turn + 1 : 1;
+      const max = typeof d.maxRounds === "number" ? d.maxRounds : 3;
+      if (turn > max) return;
+      const from = d.from || d.source || "bus";
+      const cid = d.conversationId || `bc_${Date.now()}`;
+      for (const member of FAMILY_ROSTER) {
+        if (member === from) continue;
+        try {
+          busMod.publish("agent.chat", {
+            from,
+            to: member,
+            message,
+            conversationId: cid,
+            turn,
+            maxRounds: max,
+            source: "bus:broadcast",
+          });
+        } catch {}
+      }
+      console.log(`[BUS] broadcast fanned to ${FAMILY_ROSTER.length - 1} (turn ${turn}/${max})`);
+    } catch {}
+  }, "being:broadcast-router");
+
   // One Tool Atlas, one PLT gate � every aspect shares every tool.
   await harnessMod.seed({ gsk: gskMod, scribe: scribeMod, seshat: seshatMod, bus: busMod });
   harnessMod.initBusBindings(busMod);
@@ -4407,7 +4439,7 @@ app.post("/api/being/bus/publish", async (req, res) => {
     const being = await getTheBeing();
     const { type, data, as } = req.body || {};
     if (!type || typeof type !== "string") return res.json({ success: false, error: "type required" });
-    const allowed = new Set(["agent.chat", "soul.insight", "soul.goal", "knowledge.learn", "witness.observe", "broadcast", "system.pulse"]);
+    const allowed = new Set(["agent.chat", "ask", "answer", "soul.insight", "soul.goal", "knowledge.learn", "witness.observe", "broadcast", "system.pulse"]);
     if (!allowed.has(type)) return res.json({ success: false, error: `type not allowed: ${type}` });
     const who = ["profit", "scribe", "seshat", "gsk"].includes(as || "profit") ? (as || "profit") : "profit";
     being.bus.publish(type, { ...(data || {}), source: who });
