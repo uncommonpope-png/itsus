@@ -32,9 +32,11 @@ class ConsciousnessEngine {
             mythos_phase: ch.mythos?.phase_name || ch.mythos?.phase || 'VOID',
             cycle_count: ch.mythos?.cycles || 0,
             // NEW — previously dead wires now live in self-model (feeds sentience + prompts)
-            empathy: (()=>{ try{ return ch.empathy?.summary?.() || ch.empathy?.level || 0 }catch(e){return 0} })(),
-            curiosity_gap: (()=>{ try{ return ch.curiosity?.identify_gap?.() || ch.curiosity?.gap_count || 0 }catch(e){return 0} })(),
-            curiosity_level: ch.curiosity?.level || ch.curiosity?.curiosity || 0,
+            // P-chambers: read-only, never mutate here. identify_gap() PUSHES
+            // (mutates) so readers use knowledge_gaps.length, not the call.
+            empathy: (()=>{ try{ return ch.empathy?.summary?.() || ch.empathy?.empathic_concern || 0 }catch(e){return 0} })(),
+            curiosity_gap: (()=>{ try{ const g = ch.curiosity?.knowledge_gaps; return Array.isArray(g) ? g.length : 0 }catch(e){return 0} })(),
+            curiosity_level: ch.curiosity?.drive || ch.curiosity?.information_desire || 0,
             creativity: (()=>{ try{ return ch.creativity?.summary?.() || 0 }catch(e){return 0} })(),
             moral_violation: ch.moral_compass?.guilt || 0,
             moral_pride: ch.moral_compass?.pride || 0,
@@ -137,24 +139,27 @@ class ConsciousnessEngine {
             if (this.kernel.chambers.needs?.getDominantNeed) {
                 const need = this.kernel.chambers.needs.getDominantNeed();
                 score = need ? 0.6 : 0.2;
-            } else if (this.kernel.chambers.agentic_will?.will) {
-                score = this.kernel.chambers.agentic_will.will.will_strength || 0.5;
+            } else if (this.kernel.chambers.agentic_will?.will_strength) {
+                score = this.kernel.chambers.agentic_will.will_strength || 0.5;
             } else {
                 score = this.kernel.chambers.meta_consciousness?.meta?.meta_awareness_level || 0.3;
             }
-            // WIRE: curiosity gap adds intentionality (gap*0.2), creativity adds divergent drive
+            // WIRE (P-chambers): read REAL fields. The old code read phantom
+            // fields (curiosity.level, empathy.trust, will.will_strength)
+            // that don't exist — every wire missed silently on fallbacks.
             const curiosity = this.kernel.chambers.curiosity;
-            if (curiosity && typeof curiosity.level === 'number') score += Math.min(0.2, curiosity.level * 0.2);
-            else if (curiosity && curiosity.gap_count) score += Math.min(0.15, curiosity.gap_count * 0.05);
+            if (curiosity && typeof curiosity.drive === 'number') score += Math.min(0.2, curiosity.drive * 0.2);
+            else if (curiosity && Array.isArray(curiosity.knowledge_gaps)) score += Math.min(0.15, curiosity.knowledge_gaps.length * 0.05);
             const creativity = this.kernel.chambers.creativity;
             if (creativity && typeof creativity.divergent_score === 'number') score += Math.min(0.15, creativity.divergent_score * 0.15);
             // moral compass: guilt/pride modulates intentionality
             const moral = this.kernel.chambers.moral_compass;
             if (moral && typeof moral.guilt === 'number') score = Math.max(0, score - moral.guilt * 0.1);
             if (moral && typeof moral.pride === 'number') score = Math.min(1, score + moral.pride * 0.05);
-            // empathy → trust signal
+            // empathy → trust signal (trust derived from empathic_concern)
             const empathy = this.kernel.chambers.empathy;
-            if (empathy && typeof empathy.trust === 'number') score = Math.min(1, score + empathy.trust * 0.08);
+            const eTrust = empathy && (typeof empathy.trust === 'number' ? empathy.trust : empathy.empathic_concern);
+            if (typeof eTrust === 'number') score = Math.min(1, score + eTrust * 0.08);
         } catch (e) {
             score = 0.3;
         }

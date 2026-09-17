@@ -58,6 +58,12 @@ class EmpathyChamber {
         const mirror_intensity = this.emotional_contagion;
         return { mirrored: emotion, intensity: mirror_intensity };
     }
+
+    // NERVES: trust derived live from concern+accuracy. Readers asked for
+    // `.trust` and got undefined forever — now it exists and moves.
+    get trust() {
+        return Math.min(1.0, (this.empathic_concern * 0.6) + (this.empathic_accuracy * 0.4));
+    }
     
     summary() {
         return `accuracy=${this.empathic_accuracy.toFixed(2)} | contagion=${this.emotional_contagion.toFixed(2)} | concern=${this.empathic_concern.toFixed(2)}`;

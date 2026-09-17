@@ -50,12 +50,15 @@ class ThalamicGate {
             finalSalience *= 1.3; // Boost if relevant to current purpose
         }
         // WIRE: curiosity gap → ×1.4 if percept matches gap, aesthetic elegance → ×1.3
-        if (this.curiosity && typeof this.curiosity.identify_gap === 'function') {
+        // NERVES: get_urgent_gap() READS; identify_gap() PUSHES (mutates).
+        // The old call pushed an undefined-area gap on every percept.
+        if (this.curiosity && typeof this.curiosity.get_urgent_gap === 'function') {
             try {
-                const gap = this.curiosity.identify_gap();
-                if (gap && inputPercept.content && String(inputPercept.content).toLowerCase().includes(String(gap).toLowerCase().slice(0, 30))) {
+                const gap = this.curiosity.get_urgent_gap();
+                const gapText = gap && (gap.area || gap.topic || '');
+                if (gapText && inputPercept.content && String(inputPercept.content).toLowerCase().includes(String(gapText).toLowerCase().slice(0, 30))) {
                     finalSalience *= 1.4;
-                } else if (this.curiosity.level && this.curiosity.level > 0.6) {
+                } else if (this.curiosity.drive && this.curiosity.drive > 0.6) {
                     finalSalience *= 1.1; // general curiosity boost
                 }
             } catch (e) {}

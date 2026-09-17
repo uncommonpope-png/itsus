@@ -489,7 +489,10 @@ class AutonomousLearning {
             console.log(`[AutonomousLearning] Local ingest error: ${e.message}`);
         }
         
-        const curiosity = this.chambers.curiosity || { exploration: 0.5 };
+        // NERVES: CuriosityChamber carries drive/information_desire —
+        // there is no `.exploration` field. Map honestly or default.
+        const _cq = this.chambers.curiosity || {};
+        const curiosity = { exploration: _cq.drive ?? _cq.information_desire ?? 0.5 };
         const topicsOfInterest = this._determineTopics(curiosity);
         
         for (const topic of topicsOfInterest) {

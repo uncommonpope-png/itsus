@@ -129,7 +129,8 @@ class AutonomousOutreach {
             const chambers = this.kernel.chambers;
             
             if (chambers.curiosity) {
-                curiosity = chambers.curiosity.curiosity_level || 0.5;
+                // NERVES: real field is drive, not curiosity_level.
+                curiosity = chambers.curiosity.drive ?? chambers.curiosity.information_desire ?? 0.5;
             }
             
             if (chambers.social_cognition) {

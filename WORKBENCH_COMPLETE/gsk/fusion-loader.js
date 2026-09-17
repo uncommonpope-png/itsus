@@ -708,7 +708,8 @@ class GSKFusion {
             this._safeInit('scribeBridge', () => {
                 const { ScribeBridge } = require('./gsk-core/brain/scribe_bridge.js');
                 this.scribeBridge = new ScribeBridge(this, {
-                    scribeUrl: process.env.SCRIBE_URL || 'http://127.0.0.1:4000'
+                    scribeUrl: process.env.SCRIBE_URL || 'http://127.0.0.1:4000',
+                    apiKey: process.env.SCRIBE_KEY || 'scribe-master-key-2026'
                 });
                 this.systems.scribeBridge = this.scribeBridge;
                 this.scribeBridge.start().catch(() => {});
@@ -720,11 +721,12 @@ class GSKFusion {
                 const { CplBridge } = require('./gsk-core/brain/cpl_bridge.js');
                 this.cplBridge = new CplBridge(this, {
                     cplUrl: process.env.CPL_URL || 'http://127.0.0.1:3457',
-                    broadcastUrl: process.env.CPL_BROADCAST_URL || 'http://127.0.0.1:3457/broadcast'
+                    broadcastUrl: process.env.CPL_BROADCAST_URL || 'http://127.0.0.1:3457/broadcast',
+                    spatialUrl: process.env.CPL_SPATIAL_URL || 'ws://localhost:3458'
                 });
                 this.systems.cplBridge = this.cplBridge;
                 this.cplBridge.start().catch(() => {});
-                console.log('  [FUSION] ✓ CPL bridge active (Cosmic Pyramid Library — port 3457)');
+                console.log('  [FUSION] ✓ CPL bridge active — HTTP at :3457, Spatial WS at :3458');
             });
 
             this._safeInit('planningEngine', () => {
@@ -1407,6 +1409,21 @@ class GSKFusion {
                             try { await sj.recordGrowth(`goal completed: ${title.substring(0, 120)}`, { cycle: this.chambers?.mythos?.cycles || 0 }); } catch (e) {}
                         }
                     }
+                    // NERVES (chamber study): moral compass feels every outcome.
+                    // Guilt on failure, pride on completion — the first
+                    // writers this chamber has ever had. Intentionality moves.
+                    try {
+                        const mc = this.chambers?.moral_compass;
+                        if (mc && typeof mc.evaluate === 'function') {
+                            const done = plan.steps.filter(step => step.status === 'completed').length;
+                            const total = plan.steps.length || 1;
+                            mc.evaluate(title, {
+                                profit: goalStatus === 'completed' ? 0.8 : 0.3,
+                                love: 0.5,
+                                tax: goalStatus === 'completed' ? 1 - done / total : 0.7,
+                            });
+                        }
+                    } catch (e) {}
                     if (this.memory && typeof this.memory.witness === 'function') {
                         await this.memory.witness({
                             content: `[Goal ${goalStatus}] ${title}`,
