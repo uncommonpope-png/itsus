@@ -1,0 +1,6 @@
+{
+  "_law": "Closed chapters never reopen. GoalEngine.create() refuses any title containing these (case-insensitive). Pope revives by deleting a line.",
+  "patterns": [
+    "scrapling"
+  ]
+}

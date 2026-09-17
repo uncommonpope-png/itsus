@@ -1,0 +1,768 @@
+{
+ "source": "cs-self-learning",
+ "url": "https://github.com/PKUFlyingPig/cs-self-learning",
+ "nav": {
+  "modules": [
+   {
+    "name": "前言",
+    "courses": [
+     {
+      "name": "前言",
+      "path": "index.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "如何使用这本书",
+    "courses": [
+     {
+      "name": "如何使用这本书",
+      "path": "使用指南.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "一个仅供参考的CS学习规划",
+    "courses": [
+     {
+      "name": "一个仅供参考的CS学习规划",
+      "path": "CS学习规划.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "必学工具",
+    "courses": [
+     {
+      "name": "翻墙",
+      "path": "必学工具/翻墙.md"
+     },
+     {
+      "name": "Vim",
+      "path": "必学工具/Vim.md"
+     },
+     {
+      "name": "Emacs",
+      "path": "必学工具/Emacs.md"
+     },
+     {
+      "name": "Git",
+      "path": "必学工具/Git.md"
+     },
+     {
+      "name": "GitHub",
+      "path": "必学工具/GitHub.md"
+     },
+     {
+      "name": "GNU Make",
+      "path": "必学工具/GNU_Make.md"
+     },
+     {
+      "name": "CMake",
+      "path": "必学工具/CMake.md"
+     },
+     {
+      "name": "LaTeX",
+      "path": "必学工具/LaTeX.md"
+     },
+     {
+      "name": "Docker",
+      "path": "必学工具/Docker.md"
+     },
+     {
+      "name": "Scoop",
+      "path": "必学工具/Scoop.md"
+     },
+     {
+      "name": "日常学习工作流",
+      "path": "必学工具/workflow.md"
+     },
+     {
+      "name": "实用工具箱",
+      "path": "必学工具/tools.md"
+     },
+     {
+      "name": "毕业论文",
+      "path": "必学工具/thesis.md"
+     },
+     {
+      "name": "信息检索",
+      "path": "必学工具/信息检索.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "好书推荐",
+    "courses": [
+     {
+      "name": "好书推荐",
+      "path": "好书推荐.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "数学基础",
+    "courses": [
+     {
+      "name": "MIT18.01/18.02",
+      "path": "Calculus\": \"数学基础/MITmaths.md"
+     },
+     {
+      "name": "MIT18.06",
+      "path": "Linear Algebra\": \"数学基础/MITLA.md"
+     },
+     {
+      "name": "MIT6.050J",
+      "path": "Information theory and Entropy\": \"数学基础/information.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "数学进阶",
+    "courses": [
+     {
+      "name": "UCB CS70",
+      "path": "discrete Math and probability theory\": \"数学进阶/CS70.md"
+     },
+     {
+      "name": "UCB CS126",
+      "path": "probability theory\": \"数学进阶/CS126.md"
+     },
+     {
+      "name": "MIT 6.042J",
+      "path": "Mathematics for Computer Science\": \"数学进阶/6.042J.md"
+     },
+     {
+      "name": "MIT18.330",
+      "path": "Introduction to numerical analysis\": \"数学进阶/numerical.md"
+     },
+     {
+      "name": "Standford EE364A",
+      "path": "Convex Optimization\": \"数学进阶/convex.md"
+     },
+     {
+      "name": "The Information Theory, Pattern Recognition, and Neural Networks",
+      "path": "数学进阶/The_Information_Theory_Pattern_Recognition_and_Neural_Networks.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "编程入门",
+    "courses": [
+     {
+      "name": "MIT-Missing-Semester",
+      "path": "编程入门/MIT-Missing-Semester.md"
+     },
+     {
+      "name": "Sysadmin DeCal",
+      "path": "编程入门/DeCal.md"
+     }
+    ],
+    "submodules": [
+     {
+      "name": "Python 语言",
+      "courses": [
+       {
+        "name": "UCB CS61A",
+        "path": "Structure and Interpretation of Computer Programs\": \"编程入门/Python/CS61A.md"
+       },
+       {
+        "name": "CS50P",
+        "path": "CS50's Introduction to Programming with Python\": \"编程入门/Python/CS50P.md"
+       },
+       {
+        "name": "MIT6.100L",
+        "path": "Introduction to CS and Programming using Python\": \"编程入门/Python/MIT6.100L.md"
+       }
+      ]
+     },
+     {
+      "name": "C 语言",
+      "courses": [
+       {
+        "name": "Harvard CS50",
+        "path": "This is CS50x\": \"编程入门/C/CS50.md"
+       },
+       {
+        "name": "Duke University",
+        "path": "Introductory C Programming Specialization\": \"编程入门/C/Duke-Coursera-Intro-C.md"
+       }
+      ]
+     },
+     {
+      "name": "C++ 语言",
+      "courses": [
+       {
+        "name": "AmirKabir University of Technology AP1400-2",
+        "path": "Advanced Programming\": \"编程入门/cpp/AUT1400.md"
+       },
+       {
+        "name": "Stanford CS106L",
+        "path": "Standard C++ Programming\": \"编程入门/cpp/CS106L.md"
+       },
+       {
+        "name": "Stanford CS106B/X",
+        "path": "编程入门/cpp/CS106B_CS106X.md"
+       }
+      ]
+     },
+     {
+      "name": "Java 语言",
+      "courses": [
+       {
+        "name": "MIT 6.092",
+        "path": "Introduction To Programming In Java\": \"编程入门/Java/MIT 6.092.md"
+       }
+      ]
+     },
+     {
+      "name": "Rust 语言",
+      "courses": [
+       {
+        "name": "Stanford CS110L",
+        "path": "Safety in Systems Programming\": \"编程入门/Rust/CS110L.md"
+       },
+       {
+        "name": "KAIST CS220",
+        "path": "Programming Principles\": \"编程入门/Rust/cs220.md"
+       },
+       {
+        "name": "KAIST CS431",
+        "path": "Concurrent Programming\": \"编程入门/Rust/cs431.md"
+       }
+      ]
+     },
+     {
+      "name": "函数式语言",
+      "courses": [
+       {
+        "name": "Cornell CS3110",
+        "path": "OCaml Programming Correct + Efficient + Beautiful\": \"编程入门/Functional/CS3110.md"
+       },
+       {
+        "name": "Haskell MOOC",
+        "path": "编程入门/Functional/Haskell-MOOC.md"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "电子基础",
+    "courses": [
+     {
+      "name": "EE16A&B",
+      "path": "Designing Information Devices and Systems I&II\": \"电子基础/EE16.md"
+     },
+     {
+      "name": "UCB EE120",
+      "path": "Signal and Systems\": \"电子基础/signal.md"
+     },
+     {
+      "name": "MIT 6.007 Signals and Systems",
+      "path": "电子基础/Signals_and_Systems_AVO.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "数据结构与算法",
+    "courses": [
+     {
+      "name": "UCB CS61B",
+      "path": "Data Structures and Algorithms\": \"数据结构与算法/CS61B.md"
+     },
+     {
+      "name": "Coursera",
+      "path": "Algorithms I & II\": \"数据结构与算法/Algo.md"
+     },
+     {
+      "name": "MIT 6.006",
+      "path": "Introduction to Algorithms\": \"数据结构与算法/6.006.md"
+     },
+     {
+      "name": "MIT 6.046",
+      "path": "Design and Analysis of Algorithms\": \"数据结构与算法/6.046.md"
+     },
+     {
+      "name": "UCB CS170",
+      "path": "Efficient Algorithms and Intractable Problems\": \"数据结构与算法/CS170.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "软件工程",
+    "courses": [
+     {
+      "name": "MIT 6.031",
+      "path": "Software Construction\": \"软件工程/6031.md"
+     },
+     {
+      "name": "UCB CS169",
+      "path": "software engineering\": \"软件工程/CS169.md"
+     },
+     {
+      "name": "CMU 17-803",
+      "path": "Empirical Methods\": \"软件工程/17803.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "计算机系统基础",
+    "courses": [
+     {
+      "name": "CMU 15-213",
+      "path": "CSAPP\": \"计算机系统基础/CSAPP.md"
+     },
+     {
+      "name": "Stanford CS110",
+      "path": "Principles of Computer Systems\": \"计算机系统基础/CS110.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "体系结构",
+    "courses": [
+     {
+      "name": "Coursera",
+      "path": "Nand2Tetris\": \"体系结构/N2T.md"
+     },
+     {
+      "name": "UCB CS61C",
+      "path": "Great Ideas in Computer Architecture\": \"体系结构/CS61C.md"
+     },
+     {
+      "name": "ETHz",
+      "path": "Digital Design and Computer Architecture\": \"体系结构/DDCA.md"
+     },
+     {
+      "name": "ETHz",
+      "path": "Computer Architecture\": \"体系结构/CA.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "操作系统",
+    "courses": [
+     {
+      "name": "MIT 6.S081",
+      "path": "Operating System Engineering\": \"操作系统/MIT6.S081.md"
+     },
+     {
+      "name": "UCB CS162",
+      "path": "Operating Systems and Systems Programming\": \"操作系统/CS162.md"
+     },
+     {
+      "name": "NJU OS",
+      "path": "Operating System Design and Implementation\": \"操作系统/NJUOS.md"
+     },
+     {
+      "name": "HIT OS",
+      "path": "Operating System\": \"操作系统/HITOS.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "并行与分布式系统",
+    "courses": [
+     {
+      "name": "CMU 15-418/Stanford CS149",
+      "path": "Parallel Computing\": \"并行与分布式系统/CS149.md"
+     },
+     {
+      "name": "MIT 6.5840 (6.824)",
+      "path": "Distributed System\": \"并行与分布式系统/MIT6.824.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "计算机系统安全",
+    "courses": [
+     {
+      "name": "UCB CS161",
+      "path": "Computer Security\": \"系统安全/CS161.md"
+     },
+     {
+      "name": "MIT 6.1600",
+      "path": "Foundations of Computer Security\": \"系统安全/MIT6.1600.md"
+     },
+     {
+      "name": "MIT 6.858",
+      "path": "Computer System Security\": \"系统安全/MIT6.858.md"
+     },
+     {
+      "name": "ASU CSE365",
+      "path": "Introduction to Cybersecurity\": \"系统安全/CSE365.md"
+     },
+     {
+      "name": "ASU CSE466",
+      "path": "Computer Systems Security\": \"系统安全/CSE466.md"
+     },
+     {
+      "name": "SU SEED Labs",
+      "path": "系统安全/SEEDLabs.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "计算机网络",
+    "courses": [
+     {
+      "name": "UCB CS168",
+      "path": "Introduction to the Internet: Architecture and Protocols\": \"计算机网络/CS168.md"
+     },
+     {
+      "name": "Stanford CS144",
+      "path": "Computer Network\": \"计算机网络/CS144.md"
+     },
+     {
+      "name": "USTC Computer Networking",
+      "path": "A Top-Down Approach\": \"计算机网络/topdown_ustc.md"
+     },
+     {
+      "name": "Computer Networking",
+      "path": "A Top-Down Approach\": \"计算机网络/topdown.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "数据库系统",
+    "courses": [
+     {
+      "name": "UCB CS186",
+      "path": "Introduction to Database System\": \"数据库系统/CS186.md"
+     },
+     {
+      "name": "CMU 15-445",
+      "path": "Database Systems\": \"数据库系统/15445.md"
+     },
+     {
+      "name": "Caltech CS122",
+      "path": "Database System Implementation\": \"数据库系统/CS122.md"
+     },
+     {
+      "name": "Stanford CS346",
+      "path": "Database System Implementation\": \"数据库系统/CS346.md"
+     },
+     {
+      "name": "CMU 15-799",
+      "path": "Special Topics in Database Systems\": \"数据库系统/15799.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "编译原理",
+    "courses": [
+     {
+      "name": "PKU 编译原理实践",
+      "path": "编译原理/PKU-Compilers.md"
+     },
+     {
+      "name": "Stanford CS143",
+      "path": "Compilers\": \"编译原理/CS143.md"
+     },
+     {
+      "name": "NJU 编译原理",
+      "path": "编译原理/NJU-Compilers.md"
+     },
+     {
+      "name": "KAIST CS420",
+      "path": "Compiler Design\": \"编译原理/CS420.md"
+     },
+     {
+      "name": "USTC 编译原理与技术",
+      "path": "编译原理/USTC-Compilers.md"
+     },
+     {
+      "name": "SJTU 编译原理",
+      "path": "编译原理/SJTU-Compilers.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "编程语言设计与分析",
+    "courses": [
+     {
+      "name": "Stanford CS242",
+      "path": "Programming Languages\": \"编程语言设计与分析/CS242.md"
+     },
+     {
+      "name": "NJU 软件分析",
+      "path": "编程语言设计与分析/NJU-SoftwareAnalysis.md"
+     },
+     {
+      "name": "PKU 软件分析",
+      "path": "编程语言设计与分析/PKU-SoftwareAnalysis.md"
+     },
+     {
+      "name": "Cambridge",
+      "path": "Semantics of Programming Languages\": \"编程语言设计与分析/Cambridge-Semantics.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "计算机图形学",
+    "courses": [
+     {
+      "name": "GAMES101",
+      "path": "计算机图形学/GAMES101.md"
+     },
+     {
+      "name": "GAMES202",
+      "path": "计算机图形学/GAMES202.md"
+     },
+     {
+      "name": "GAMES103",
+      "path": "计算机图形学/GAMES103.md"
+     },
+     {
+      "name": "Stanford CS148",
+      "path": "计算机图形学/CS148.md"
+     },
+     {
+      "name": "CMU 15-462",
+      "path": "计算机图形学/15462.md"
+     },
+     {
+      "name": "USTC CG",
+      "path": "计算机图形学/USTC ComputerGraphics.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "Web开发",
+    "courses": [
+     {
+      "name": "MIT web development course",
+      "path": "Web开发/mitweb.md"
+     },
+     {
+      "name": "Stanford CS142",
+      "path": "Web Applications\": \"Web开发/CS142.md"
+     },
+     {
+      "name": "University of Helsinki",
+      "path": "Full Stack open 2022\": \"Web开发/fullstackopen.md"
+     },
+     {
+      "name": "CS571 Building UI (React & React Native)",
+      "path": "Web开发/CS571.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "数据科学",
+    "courses": [
+     {
+      "name": "UCB Data100",
+      "path": "Principles and Techniques of Data Science\": \"数据科学/Data100.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "人工智能",
+    "courses": [
+     {
+      "name": "Neural Networks",
+      "path": "Zero to Hero\": \"人工智能/Neural Networks：Zero to Hero.md"
+     },
+     {
+      "name": "Harvard CS50's Introduction to AI with Python",
+      "path": "人工智能/CS50.md"
+     },
+     {
+      "name": "UCB CS188",
+      "path": "Introduction to Artificial Intelligence\": \"人工智能/CS188.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "机器学习",
+    "courses": [
+     {
+      "name": "Coursera",
+      "path": "Machine Learning\": \"机器学习/ML.md"
+     },
+     {
+      "name": "Stanford CS229",
+      "path": "Machine Learning\": \"机器学习/CS229.md"
+     },
+     {
+      "name": "UCB CS189",
+      "path": "Introduction to Machine Learning\": \"机器学习/CS189.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "机器学习系统",
+    "courses": [
+     {
+      "name": "CMU 15-442/642",
+      "path": "Machine Learning Systems\": \"机器学习系统/CMU15-442.md"
+     },
+     {
+      "name": "智能计算系统",
+      "path": "机器学习系统/AICS.md"
+     },
+     {
+      "name": "CMU 10-414/714",
+      "path": "Deep Learning Systems\": \"机器学习系统/CMU10-414.md"
+     },
+     {
+      "name": "MIT6.5940",
+      "path": "TinyML and Efficient Deep Learning Computing\": \"机器学习系统/EML.md"
+     },
+     {
+      "name": "Machine Learning Compilation",
+      "path": "机器学习系统/MLC.md"
+     },
+     {
+      "name": "UCSD CSE234",
+      "path": "Data Systems for Machine Learning\": \"机器学习系统/CSE234.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "深度学习",
+    "courses": [
+     {
+      "name": "Coursera",
+      "path": "Deep Learning\": \"深度学习/CS230.md"
+     },
+     {
+      "name": "国立台湾大学",
+      "path": "李宏毅机器学习\": \"深度学习/LHY.md"
+     },
+     {
+      "name": "CMU 11-785",
+      "path": "Introduction to Deep Learning\": \"深度学习/CMU11-785.md"
+     },
+     {
+      "name": "MIT 6.7960",
+      "path": "Deep Learning\": \"深度学习/MIT6-7960.md"
+     },
+     {
+      "name": "NYU DLSP21",
+      "path": "NYU Deep Learning Spring 2021\": \"深度学习/NYU-DLSP21.md"
+     },
+     {
+      "name": "UMich EECS 498-007 / 598-005",
+      "path": "Deep Learning for Computer Vision\": \"深度学习/EECS498-007.md"
+     },
+     {
+      "name": "Stanford CS231n",
+      "path": "CNN for Visual Recognition\": \"深度学习/CS231.md"
+     },
+     {
+      "name": "Stanford CS224n",
+      "path": "Natural Language Processing\": \"深度学习/CS224n.md"
+     },
+     {
+      "name": "Stanford CS224w",
+      "path": "Machine Learning with Graphs\": \"深度学习/CS224w.md"
+     },
+     {
+      "name": "UCB CS285",
+      "path": "Deep Reinforcement Learning\": \"深度学习/CS285.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "深度生成模型",
+    "courses": [
+     {
+      "name": "学习路线图",
+      "path": "深度生成模型/roadmap.md"
+     },
+     {
+      "name": "MIT 6.S184",
+      "path": "Generative AI with Stochastic Differential Equations\": \"深度生成模型/MIT6.S184.md"
+     }
+    ],
+    "submodules": [
+     {
+      "name": "\"大语言模型\"",
+      "courses": [
+       {
+        "name": "CMU 11-868",
+        "path": "Large Language Model System\": \"深度生成模型/大语言模型/CMU11-868.md"
+       },
+       {
+        "name": "CMU 11-667",
+        "path": "Large Language Models: Methods and Applications\": \"深度生成模型/大语言模型/CMU11-667.md"
+       },
+       {
+        "name": "CMU 11-711",
+        "path": "Advanced Natural Language Processing\": \"深度生成模型/大语言模型/CMU11-711.md"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "机器学习进阶",
+    "courses": [
+     {
+      "name": "学习路线图",
+      "path": "机器学习进阶/roadmap.md"
+     },
+     {
+      "name": "CMU 10-708",
+      "path": "Probabilistic Graphical Models\": \"机器学习进阶/CMU10-708.md"
+     },
+     {
+      "name": "Columbia STAT 8201",
+      "path": "Deep Generative Models\": \"机器学习进阶/STAT8201.md"
+     },
+     {
+      "name": "U Toronto STA 4273 Winter 2021",
+      "path": "Minimizing Expectations\": \"机器学习进阶/STA4273.md"
+     },
+     {
+      "name": "Stanford STATS214 / CS229M",
+      "path": "Machine Learning Theory\": \"机器学习进阶/CS229M.md"
+     }
+    ],
+    "submodules": []
+   },
+   {
+    "name": "后记",
+    "courses": [
+     {
+      "name": "后记",
+      "path": "后记.md"
+     }
+    ],
+    "submodules": []
+   }
+  ],
+  "_meta": {}
+ },
+ "fetchedAt": "2026-09-17T01:34:47.780Z",
+ "moduleCount": 30
+}

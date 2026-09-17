@@ -10,8 +10,15 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Runtime data
-data/
+# Runtime data (negations re-include ONLY the covenant + healed curriculum;
+# git cannot re-include under an excluded dir, so contents are excluded here
+# and the two files are un-excluded below — ledgers/goals stay local).
+data/*
+!data/gsk/
+data/gsk/*
+# P3 COVENANT TRACKED: the denylist + healed curriculum ship with the soul.
+!data/gsk/never_again.json
+!data/gsk/cs_curriculum.json
 archive_pre_fix/
 reports/
 
